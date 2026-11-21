@@ -1,8 +1,8 @@
 import React, { useState } from 'react'
 import { I } from './ui.jsx'
-import { api, fmtShort, verdict } from './api.js'
+import { api, fmtShort, verdict, INTERVALS } from './api.js'
 
-const EVERY = { 24: 'codziennie', 168: 'co tydzień', 720: 'co miesiąc' }
+const EVERY = Object.fromEntries(INTERVALS.map((i) => [i.hours, i.label]))
 
 /** Alerty: automatyczne ostrzeżenia po pogorszeniu stanu strony. */
 export function Alerts({ alerts, onOpen, onRead }) {

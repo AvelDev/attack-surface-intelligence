@@ -4,7 +4,6 @@ Każdy etap używa narzędzia z Kali/Ubuntu (subfinder, dnsx, naabu/nmap, httpx,
 a gdy go brak - czystego Pythona (fallback), więc PoC działa także bez zainstalowanych narzędzi.
 Wszystkie komendy są uruchamiane BEZ powłoki (lista argumentów), cel jest walidowany.
 """
-import ipaddress
 import json
 import os
 import re
@@ -22,8 +21,12 @@ import xml.etree.ElementTree as ET
 from concurrent.futures import ThreadPoolExecutor
 from urllib.parse import urlparse
 
-from . import alerts, checks, db, intel, tools_ext
+from . import alerts, checks, config, db, intel, net, tools_ext
+from .domain import risk_score
 from .proc import jsonl, run_cmd
+from . import targets
+from .targets import DOMAIN_RE, is_ip
+from .targets import normalize as normalize_target  # noqa: F401 - publiczne API modułu
 
 # ~/go/bin (narzędzia Go) oraz katalog bieżącego interpretera (narzędzia pip z venv: sslyze, wafw00f, dnsrecon)
 os.environ["PATH"] = os.pathsep.join([os.environ.get("PATH", ""), os.path.expanduser("~/go/bin"),
@@ -33,9 +36,6 @@ SEM = threading.Semaphore(1)  # skany idą w kolejce, po jednym naraz
 TOOLS = ["subfinder", "dnsx", "naabu", "nmap", "httpx", "nuclei",
          "amass", "assetfinder", "dnsrecon", "sslyze", "testssl", "wafw00f", "whatweb", "katana", "gau", "waybackurls"]
 TOOL_BIN = {"testssl": ("testssl.sh", "testssl")}  # nazwa narzędzia -> możliwe nazwy pliku
-SEV_W = {"critical": 40, "high": 20, "medium": 8, "low": 3, "info": 0}
-DOMAIN_RE = re.compile(r"^(?=.{1,253}$)([a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z]{2,63}$")
-ALLOW_PRIVATE = os.environ.get("ASI_ALLOW_PRIVATE") == "1"
 
 PY_PORTS = [21, 22, 23, 25, 53, 80, 110, 111, 135, 139, 143, 443, 445, 993, 995, 1433, 1723,
             3000, 3306, 3389, 5432, 5900, 6379, 8000, 8080, 8443, 9200, 27017]
@@ -63,30 +63,6 @@ RISKY = {  # port -> (severity, tytuł, zalecenie)
 }
 ADMIN_RE = re.compile(r"(admin|login|dashboard|jenkins|grafana|kibana|phpmyadmin|router|"
                       r"portainer|gitlab|sign in|zaloguj)", re.I)
-
-
-def normalize_target(raw):
-    t = (raw or "").strip().lower()
-    t = re.sub(r"^[a-z]+://", "", t).split("/")[0].split(":")[0].strip(".")
-    try:
-        ipaddress.IPv4Address(t)
-        return t
-    except ValueError:
-        pass
-    if not DOMAIN_RE.match(t):
-        raise ValueError("Nieprawidłowy cel - podaj domenę (example.com) lub adres IPv4.")
-    allowed = [x.strip() for x in os.environ.get("ASI_ALLOWED_TARGETS", "").split(",") if x.strip()]
-    if allowed and not any(t == a or t.endswith("." + a) for a in allowed):
-        raise ValueError("Cel poza dozwoloną listą (ASI_ALLOWED_TARGETS).")
-    return t
-
-
-def is_ip(t):
-    try:
-        ipaddress.IPv4Address(t)
-        return True
-    except ValueError:
-        return False
 
 
 def tool_status():
@@ -130,6 +106,10 @@ class Ctx:
                       (self.id, aid, kind, value, json.dumps(data or {})))
         return aid
 
+    def has_asset(self, aid):
+        with db.conn() as c:
+            return c.execute("SELECT 1 FROM assets WHERE scan_id=? AND id=?", (self.id, aid)).fetchone() is not None
+
     def edge(self, src, dst):
         if src != dst:
             with db.conn() as c:
@@ -161,12 +141,6 @@ class Ctx:
                        risk_score(sev), time.time(), self.id))
 
 
-def risk_score(severities):
-    """0-100, malejące przyrosty: kilka krytycznych szybko wyciąga wynik w górę."""
-    total = sum(SEV_W.get(s, 0) for s in severities)
-    return min(100, int(100 * (1 - 0.985 ** total)))
-
-
 # ---------- etap 1: subdomeny ----------
 def enum_subdomains(ctx, root, tools):
     found = set()
@@ -177,7 +151,7 @@ def enum_subdomains(ctx, root, tools):
     try:  # źródło pasywne: Certificate Transparency
         url = f"https://crt.sh/?q=%25.{root}&output=json"
         ctx.log(f"GET {url}")
-        with urllib.request.urlopen(urllib.request.Request(url, headers={"User-Agent": "asi-poc"}),
+        with urllib.request.urlopen(urllib.request.Request(url, headers={"User-Agent": net.USER_AGENT}),
                                     timeout=30) as r:
             for row in json.load(r):
                 for n in row.get("name_value", "").split("\n"):
@@ -343,28 +317,14 @@ def web_scheme(p):
 
 
 # ---------- etap 4: HTTP ----------
-class _NoRedirect(urllib.request.HTTPRedirectHandler):
-    def redirect_request(self, *a, **k):
-        return None
-
-
 def http_probe(url):
-    ctxt = ssl.create_default_context()
-    ctxt.check_hostname, ctxt.verify_mode = False, ssl.CERT_NONE
-    op = urllib.request.build_opener(_NoRedirect, urllib.request.HTTPSHandler(context=ctxt))
-    req = urllib.request.Request(url, headers={"User-Agent": "Mozilla/5.0 asi-poc"})
-    try:
-        r = op.open(req, timeout=8)
-    except urllib.error.HTTPError as e:
-        r = e
-    except Exception:  # noqa: BLE001
+    r = net.fetch(url, limit=65536, timeout=8)
+    if r is None:
         return None
-    body = r.read(65536).decode("utf-8", "ignore")
-    m = re.search(r"<title[^>]*>(.*?)</title>", body, re.I | re.S)
-    h = {k.lower(): v for k, v in r.headers.items()}
-    return {"url": url, "status": r.status if hasattr(r, "status") else r.code,
+    m = re.search(r"<title[^>]*>(.*?)</title>", r.body.decode("utf-8", "ignore"), re.I | re.S)
+    return {"url": url, "status": r.status,
             "title": re.sub(r"\s+", " ", m.group(1)).strip()[:120] if m else "",
-            "server": h.get("server", ""), "tech": [], "headers": h}
+            "server": r.headers.get("server", ""), "tech": [], "headers": r.headers}
 
 
 def probe_web(ctx, urls, tools):
@@ -513,8 +473,8 @@ def pipeline(ctx):
                 ctx.edge(nid, ctx.asset("ip", ip))
 
     ips = sorted({ip for v in ip_of.values() for ip in v})
-    if not ALLOW_PRIVATE and not ip_target:
-        priv = [i for i in ips if not ipaddress.ip_address(i).is_global]
+    if not config.load().allow_private and not ip_target:
+        priv = [i for i in ips if not targets.is_public(i)]
         if priv:
             ctx.log(f"Pomijam adresy nieglobalne (ASI_ALLOW_PRIVATE=1 aby skanować): {priv}")
             ips = [i for i in ips if i not in priv]

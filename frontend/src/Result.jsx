@@ -3,7 +3,7 @@ import { I, SevBadge } from './ui.jsx'
 import { Graph } from './Graph.jsx'
 import { Trend } from './Monitor.jsx'
 import {
-  PL, WHEN, KIND_PL, STEPS, isRunning, verdict, plural, fmtTime, assetLabel, assetInfo, explain, niceTitle, stepIndex,
+  PL, WHEN, URGENT, KIND_PL, STEPS, isRunning, verdict, plural, fmtTime, assetLabel, assetInfo, explain, niceTitle, stepIndex,
 } from './api.js'
 
 export function Result({ detail, error, onBack, onRescan }) {
@@ -77,7 +77,7 @@ function Failed({ scan, onRescan }) {
 function Done({ detail, onRescan }) {
   const { scan: s, counts, findings, diff } = detail
   const v = verdict(s.score, counts)
-  const urgent = findings.filter((f) => f.severity === 'critical' || f.severity === 'high')
+  const urgent = findings.filter((f) => URGENT.has(f.severity))
   const first = findings.slice(0, 3)
   const rest = findings.slice(3)
   const head = {

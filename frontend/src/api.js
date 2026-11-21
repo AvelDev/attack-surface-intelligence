@@ -1,3 +1,5 @@
+import domain from '../../asi/domain.json'
+
 export async function api(path, opts) {
   let r
   try { r = await fetch(path, opts) } catch { throw new Error('Brak połączenia z programem. Sprawdź, czy jest uruchomiony, i spróbuj ponownie.') }
@@ -9,31 +11,25 @@ export async function api(path, opts) {
 export const postScan = (body) =>
   api('/api/scans', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) })
 
-export const SEVS = ['critical', 'high', 'medium', 'low', 'info']
-export const PL = { critical: 'Krytyczne', high: 'Wysokie', medium: 'Średnie', low: 'Niskie', info: 'Informacja' }
-export const WHEN = {
-  critical: 'Napraw natychmiast',
-  high: 'Napraw w tym tygodniu',
-  medium: 'Zaplanuj naprawę',
-  low: 'Popraw przy okazji',
-  info: 'Do wiadomości',
-}
+/* Ważność ustaleń, progi oceny i odstępy harmonogramu: jedno źródło z backendem (asi/domain.json). */
+export const SEVS = domain.severities.map((s) => s.id)
+export const PL = Object.fromEntries(domain.severities.map((s) => [s.id, s.label]))
+export const WHEN = Object.fromEntries(domain.severities.map((s) => [s.id, s.when]))
+export const URGENT = new Set(domain.urgent)
+export const INTERVALS = Object.entries(domain.intervals).map(([h, label]) => ({ hours: Number(h), label }))
+export const DEFAULT_INTERVAL = domain.default_interval
 export const KIND_PL = { domain: 'adres główny', subdomain: 'adres podrzędny', ip: 'adres serwera', port: 'otwarta usługa', web: 'strona WWW' }
 export const KIND_COLOR = { domain: '#0b4f9e', subdomain: '#13788c', ip: '#6d4aad', port: '#9a6a00', web: '#b3380a' }
 
 export const isRunning = (s) => s === 'queued' || s === 'running'
-export const scoreSev = (n) => (n >= 60 ? 'critical' : n >= 30 ? 'medium' : 'low')
+const V = domain.verdict
+export const scoreSev = (n) => (n >= V.bad_score ? 'critical' : n >= V.warn_score ? 'medium' : 'low')
 
-/** Ocena ogólna dla osoby nietechnicznej. */
+/** Ocena ogólna dla osoby nietechnicznej (ta sama reguła co asi/domain.py:verdict). */
 export function verdict(score, counts) {
-  const urgent = (counts?.critical || 0) + (counts?.high || 0)
-  if (score >= 60 || (counts?.critical || 0) > 0) {
-    return { tone: 'bad', title: 'Wymaga pilnej uwagi', text: 'Znaleziono poważne problemy. Przekaż raport informatykowi jeszcze dziś.' }
-  }
-  if (score >= 30 || urgent > 0) {
-    return { tone: 'warn', title: 'Wymaga poprawek', text: 'Znaleziono problemy, które warto naprawić w najbliższym czasie.' }
-  }
-  return { tone: 'good', title: 'Nie znaleziono poważnych problemów', text: 'Strona wygląda dobrze pod kątem tego, co sprawdza to narzędzie. To nie zastępuje pełnego audytu bezpieczeństwa.' }
+  const urgent = domain.urgent.reduce((n, s) => n + (counts?.[s] || 0), 0)
+  const tone = score >= V.bad_score || (counts?.critical || 0) > 0 ? 'bad' : score >= V.warn_score || urgent > 0 ? 'warn' : 'good'
+  return { tone, ...V[tone] }
 }
 
 export function plural(n, one, few, many) {

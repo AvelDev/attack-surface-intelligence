@@ -11,18 +11,11 @@ import socket
 import struct
 import tempfile
 import urllib.parse
-import urllib.request
 from concurrent.futures import ThreadPoolExecutor
 
-from . import checks
+from . import checks, net
 from .proc import run_cmd
-
-UA = {"User-Agent": "asi-poc"}
-
-
-def in_scope(host, root):
-    host = (host or "").lower().split(":")[0]
-    return host == root or host.endswith("." + root)
+from .targets import in_scope
 
 
 def _tmp(suffix):
@@ -48,10 +41,7 @@ def _cleanup(d):
 
 
 # ---------- subdomeny ----------
-def _http_lines(url, timeout=20):
-    req = urllib.request.Request(url, headers=UA)
-    with urllib.request.urlopen(req, timeout=timeout) as r:
-        return r.read(2_000_000).decode("utf-8", "ignore")
+_http_lines = net.get_text
 
 
 def more_subdomains(ctx, root, tools, deep):

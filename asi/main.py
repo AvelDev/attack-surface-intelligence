@@ -10,11 +10,10 @@ from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, Response
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
-from . import db, scanner, scheduler, settings, store
+from . import config, db, domain, scanner, scheduler, settings, store
 
 app = FastAPI(title="Attack Surface Intelligence PoC")
-STATIC = os.path.join(db.ROOT, "static")
-SEV_ORDER = store.SEV_ORDER
+STATIC = config.load().static_dir
 
 
 @app.on_event("startup")
@@ -76,10 +75,8 @@ def _load(sid):
 def get_scan(sid: int):
     s, assets, edges, findings = _load(sid)
     s["log"] = "".join(s["log"].splitlines(True)[-400:])
-    counts = {k: 0 for k in SEV_ORDER}
-    for f in findings:
-        counts[f["severity"]] = counts.get(f["severity"], 0) + 1
-    live_score = scanner.risk_score([f["severity"] for f in findings])
+    counts = domain.count_by_severity(findings)
+    live_score = domain.risk_score([f["severity"] for f in findings])
     s["score"] = s["score"] if s["status"] == "done" else live_score
     return {"scan": s, "assets": assets, "edges": edges, "findings": findings, "counts": counts,
             "diff": store.diff(sid, s["target"], assets, findings) if s["status"] == "done" else None,
@@ -106,14 +103,14 @@ def list_schedules():
             "SELECT h.*, (SELECT id FROM scans s WHERE s.target=h.target AND s.status='done' ORDER BY id DESC LIMIT 1) AS last_scan,"
             "(SELECT score FROM scans s WHERE s.target=h.target AND s.status='done' ORDER BY id DESC LIMIT 1) AS last_score "
             "FROM schedules h ORDER BY h.id DESC").fetchall()
-    return {"intervals": scheduler.INTERVALS, "items": [dict(r) for r in rows]}
+    return {"intervals": domain.INTERVALS, "items": [dict(r) for r in rows]}
 
 
 @app.post("/api/schedules")
 def create_schedule(req: ScheduleReq):
     if not req.authorized:
         raise HTTPException(400, "Potwierdź, że masz zgodę na cykliczne sprawdzanie tego celu.")
-    if req.interval_hours not in scheduler.INTERVALS:
+    if req.interval_hours not in domain.INTERVALS:
         raise HTTPException(400, "Niedozwolony odstęp czasu.")
     try:
         target = scanner.normalize_target(req.target)
@@ -223,9 +220,6 @@ def export_csv(sid: int):
                     headers={"Content-Disposition": f'attachment; filename="asi-findings-{sid}.csv"'})
 
 
-SEV_PL = {"critical": "Krytyczne", "high": "Wysokie", "medium": "Średnie", "low": "Niskie", "info": "Informacja"}
-SEV_WHEN = {"critical": "napraw natychmiast", "high": "napraw w tym tygodniu", "medium": "zaplanuj naprawę",
-            "low": "popraw przy okazji", "info": "do wiadomości"}
 REPORT_CSS = ("body{font:16px/1.55 'Segoe UI',Arial,sans-serif;color:#17202e;max-width:52rem;margin:2rem auto;padding:0 1rem}"
               "h1{font-size:1.6rem;margin:0 0 .3rem}h2{font-size:1.2rem;margin:1.8rem 0 .5rem}"
               ".meta{color:#44505f;margin:0 0 1rem}.box{border:2px solid;border-radius:6px;padding:1rem 1.2rem;margin:1rem 0}"
@@ -244,20 +238,15 @@ def report(sid: int):
     s, assets, _, findings = _load(sid)
     e = html.escape
     sc = s["score"] or 0
-    crit = sum(1 for f in findings if f["severity"] in ("critical", "high"))
-    if sc >= 60 or any(f["severity"] == "critical" for f in findings):
-        tone, head, text = "bad", "Wymaga pilnej uwagi", "Znaleziono poważne problemy. Przekaż ten raport informatykowi jeszcze dziś."
-    elif sc >= 30 or crit:
-        tone, head, text = "warn", "Wymaga poprawek", "Znaleziono problemy, które warto naprawić w najbliższym czasie."
-    else:
-        tone, head, text = ("good", "Nie znaleziono poważnych problemów",
-                            "To nie zastępuje pełnego audytu bezpieczeństwa.")
+    crit = sum(1 for f in findings if f["severity"] in domain.URGENT)
+    v = domain.verdict(sc, domain.count_by_severity(findings))
+    tone, head, text = v["tone"], v["title"], v["text"]
     when = time.strftime("%d.%m.%Y %H:%M", time.localtime(s["created"])) if s.get("created") else ""
     items = "".join(
-        f"<div class=f><h3><span class=tag>{e(SEV_PL.get(f['severity'], f['severity']))}</span>{e(f['title'])}</h3>"
+        f"<div class=f><h3><span class=tag>{e(domain.SEV_LABEL.get(f['severity'], f['severity']))}</span>{e(f['title'])}</h3>"
         f"<p><span class=k>Dotyczy:</span> <code>{e(f['asset'])}</code></p>"
         + (f"<p><span class=k>Co zrobić:</span> {e(f['fix'])}</p>" if f["fix"] else "")
-        + f"<p><span class=k>Termin:</span> {e(SEV_WHEN.get(f['severity'], ''))}</p></div>"
+        + f"<p><span class=k>Termin:</span> {e(domain.SEV_WHEN.get(f['severity'], ''))}</p></div>"
         for f in findings) or "<p>Nie znaleziono żadnych uwag.</p>"
     return (f"<!doctype html><html lang=pl><meta charset=utf-8><title>Raport z sprawdzenia: {e(s['target'])}</title>"
             f"<style>{REPORT_CSS}</style>"

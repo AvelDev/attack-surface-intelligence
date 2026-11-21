@@ -1,6 +1,6 @@
 import React, { useRef, useState, useEffect } from 'react'
 import { I } from './ui.jsx'
-import { isRunning, verdict, fmtShort, plural } from './api.js'
+import { isRunning, verdict, fmtShort, plural, INTERVALS, DEFAULT_INTERVAL } from './api.js'
 import { Alerts, Monitored } from './Monitor.jsx'
 
 export function Home({ scans, tools, alerts, schedules, onRun, onOpen, onDelete, onReadAlerts, onMonitorChange }) {
@@ -9,7 +9,7 @@ export function Home({ scans, tools, alerts, schedules, onRun, onOpen, onDelete,
   const [nuclei, setNuclei] = useState(false)
   const [deep, setDeep] = useState(false)
   const [monitor, setMonitor] = useState(false)
-  const [every, setEvery] = useState(168)
+  const [every, setEvery] = useState(DEFAULT_INTERVAL)
   const [err, setErr] = useState('')
   const [busy, setBusy] = useState(false)
   const input = useRef(null)
@@ -58,7 +58,7 @@ export function Home({ scans, tools, alerts, schedules, onRun, onOpen, onDelete,
             <div className="inline-field">
               <label htmlFor="co-ile" className="label">Jak często?</label>
               <select id="co-ile" className="select" value={every} onChange={(e) => setEvery(Number(e.target.value))}>
-                <option value={24}>Codziennie</option><option value={168}>Co tydzień</option><option value={720}>Co miesiąc</option>
+                {INTERVALS.map((i) => <option key={i.hours} value={i.hours}>{i.label[0].toUpperCase() + i.label.slice(1)}</option>)}
               </select>
             </div>
           )}

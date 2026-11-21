@@ -3,8 +3,6 @@ import threading
 import time
 
 from . import db, scanner
-
-INTERVALS = {24: "codziennie", 168: "co tydzień", 720: "co miesiąc"}
 POLL_SECONDS = 30
 _started = False
 

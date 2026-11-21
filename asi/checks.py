@@ -3,38 +3,14 @@
 Każda funkcja zwraca listę krotek (severity, tytuł, detail, zalecenie). Nic nie modyfikuje sprawdzanej strony.
 Sygnatury treści chronią przed fałszywymi alarmami (strony zwracające 200 dla każdej ścieżki).
 """
-import json
 import re
 import socket
 import ssl
-import urllib.error
 import urllib.parse
-import urllib.request
 
-UA = {"User-Agent": "Mozilla/5.0 asi-poc"}
+from . import net
 
-
-class _NoRedirect(urllib.request.HTTPRedirectHandler):
-    def redirect_request(self, *a, **k):
-        return None
-
-
-def fetch(url, limit=4096, timeout=6):
-    """GET bez podążania za przekierowaniami. Zwraca (status, nagłówki, bajty) albo None."""
-    c = ssl.create_default_context()
-    c.check_hostname, c.verify_mode = False, ssl.CERT_NONE
-    op = urllib.request.build_opener(_NoRedirect, urllib.request.HTTPSHandler(context=c))
-    try:
-        r = op.open(urllib.request.Request(url, headers=UA), timeout=timeout)
-    except urllib.error.HTTPError as e:
-        r = e
-    except Exception:  # noqa: BLE001
-        return None
-    try:
-        body = r.read(limit)
-    except Exception:  # noqa: BLE001
-        body = b""
-    return (getattr(r, "status", None) or r.code), {k.lower(): v for k, v in r.headers.items()}, body
+fetch = net.fetch  # nazwa modułowa: punkt podmiany w testach
 
 
 # ---------- ukryte / wrażliwe pliki ----------
@@ -121,9 +97,8 @@ def legacy_tls(host, port):
 # ---------- poczta: SPF / DMARC (przez DNS-over-HTTPS, bez dodatkowych bibliotek) ----------
 def _doh(name, rtype):
     url = "https://cloudflare-dns.com/dns-query?" + urllib.parse.urlencode({"name": name, "type": rtype})
-    req = urllib.request.Request(url, headers={"Accept": "application/dns-json", **UA})
-    with urllib.request.urlopen(req, timeout=8) as r:
-        return [a["data"].strip('"') for a in json.load(r).get("Answer", []) if "data" in a]
+    j = net.get_json(url, timeout=8, headers={"Accept": "application/dns-json"})
+    return [a["data"].strip('"') for a in j.get("Answer", []) if "data" in a]
 
 
 def email_auth(domain):

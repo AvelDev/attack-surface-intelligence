@@ -4,13 +4,13 @@ import time
 import pytest
 from fastapi.testclient import TestClient
 
-from asi import db, scanner, scheduler
+from asi import db, domain, scanner, scheduler
 from asi.main import app
 
 
 @pytest.fixture(autouse=True)
 def tmp_db(tmp_path, monkeypatch):
-    monkeypatch.setattr(db, "DB_PATH", str(tmp_path / "asi.db"))
+    monkeypatch.setenv("ASI_DB", str(tmp_path / "asi.db"))
     db.init()
     return tmp_path
 
@@ -36,7 +36,7 @@ def seed_scan(target, findings=(), assets=(), status="done", score=None):
     with db.conn() as c:
         sid = c.execute("INSERT INTO scans(target,opts,status,score,created,finished) VALUES(?,?,?,?,?,?)",
                         (target, json.dumps({}), status,
-                         scanner.risk_score(sev) if score is None else score, time.time(), time.time())).lastrowid
+                         domain.risk_score(sev) if score is None else score, time.time(), time.time())).lastrowid
         for aid in assets:
             kind, value = aid.split(":", 1)
             c.execute("INSERT INTO assets(scan_id,id,kind,value,data) VALUES(?,?,?,?,?)", (sid, aid, kind, value, "{}"))

@@ -2,25 +2,19 @@
 
 Webhook: ASI_WEBHOOK_URL (JSON {"text": "..."} - zgodny ze Slack/Mattermost/Teams incoming webhook).
 """
-import json
-import os
 import time
-import urllib.request
 
-from . import db, store
-
-URGENT = ("critical", "high")
+from . import config, db, net, store
+from .domain import URGENT
 SCORE_JUMP = 10  # o tyle punktów gorsza ocena = alert, nawet bez nowych pilnych uwag
 
 
 def _webhook(text):
-    url = os.environ.get("ASI_WEBHOOK_URL", "").strip()
+    url = config.load().webhook_url
     if not url.startswith(("http://", "https://")):
         return
     try:
-        req = urllib.request.Request(url, data=json.dumps({"text": text}).encode(),
-                                     headers={"Content-Type": "application/json"})
-        urllib.request.urlopen(req, timeout=10).read()
+        net.post_json(url, {"text": text})
     except Exception:  # noqa: BLE001 - webhook nie może wywrócić skanu
         pass
 

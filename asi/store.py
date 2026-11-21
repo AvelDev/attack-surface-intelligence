@@ -1,9 +1,7 @@
 """Odczyt skanów z bazy, diff względem poprzedniego skanu i trend oceny (współdzielone przez API i alerty)."""
 import json
 
-from . import db
-
-SEV_ORDER = {"critical": 0, "high": 1, "medium": 2, "low": 3, "info": 4}
+from . import db, domain
 
 
 def load(sid):
@@ -16,8 +14,7 @@ def load(sid):
                   c.execute("SELECT id,kind,value,data FROM assets WHERE scan_id=?", (sid,))]
         edges = [dict(r) for r in c.execute("SELECT src,dst FROM edges WHERE scan_id=?", (sid,))]
         findings = [dict(r) for r in c.execute("SELECT * FROM findings WHERE scan_id=?", (sid,))]
-    findings.sort(key=lambda f: SEV_ORDER.get(f["severity"], 9))
-    return dict(s), assets, edges, findings
+    return dict(s), assets, edges, domain.sort_findings(findings)
 
 
 def diff(sid, target, assets, findings):

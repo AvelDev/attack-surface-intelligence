@@ -3,8 +3,7 @@ import os
 import sqlite3
 from contextlib import contextmanager
 
-ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-DB_PATH = os.environ.get("ASI_DB", os.path.join(ROOT, "data", "asi.db"))
+from . import config
 
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS scans(
@@ -59,7 +58,7 @@ CREATE TABLE IF NOT EXISTS alerts(
 
 @contextmanager
 def conn():
-    c = sqlite3.connect(DB_PATH, timeout=30)
+    c = sqlite3.connect(config.load().db_path, timeout=30)
     c.row_factory = sqlite3.Row
     try:
         yield c
@@ -69,7 +68,7 @@ def conn():
 
 
 def init():
-    os.makedirs(os.path.dirname(DB_PATH), exist_ok=True)
+    os.makedirs(os.path.dirname(config.load().db_path), exist_ok=True)
     with conn() as c:
         c.executescript(SCHEMA)
         try:  # migracja: tryb dokładny w harmonogramach
@@ -77,7 +76,7 @@ def init():
         except sqlite3.OperationalError:
             pass
         try:
-            os.chmod(DB_PATH, 0o600)  # w bazie leżą klucze API
+            os.chmod(config.load().db_path, 0o600)  # w bazie leżą klucze API
         except OSError:
             pass
         c.execute("UPDATE scans SET status='failed', stage='przerwany (restart)' "

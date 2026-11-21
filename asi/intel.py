@@ -14,24 +14,19 @@ import re
 import time
 import urllib.error
 import urllib.parse
-import urllib.request
 
-from . import db, settings
-
-UA = "asi-poc"
+from . import config, net, settings
 KEV_URL = "https://www.cisa.gov/sites/default/files/feeds/known_exploited_vulnerabilities.json"
 CVE_RE = re.compile(r"^CVE-\d{4}-\d{4,}$")
 MAX_CVE_PER_IP = 8
 
 
 def _get(url, headers=None, timeout=15):
-    req = urllib.request.Request(url, headers={"User-Agent": UA, **(headers or {})})
-    with urllib.request.urlopen(req, timeout=timeout) as r:
-        return json.load(r)
+    return net.get_json(url, timeout=timeout, headers=headers)
 
 
 def kev_set():
-    path = os.path.join(os.path.dirname(db.DB_PATH), "kev.json")
+    path = os.path.join(os.path.dirname(config.load().db_path), "kev.json")
     try:
         if os.path.exists(path) and time.time() - os.path.getmtime(path) < 86400:
             with open(path, encoding="utf-8") as f:
@@ -164,9 +159,7 @@ def enrich(ctx, ips, root, target, ip_target):
                 ctx.log(f"  Censys {ip}: porty {cp['ports']}")
                 for port in cp["ports"]:
                     aid = f"port:{ip}:{port}"
-                    with db.conn() as c:
-                        have = c.execute("SELECT 1 FROM assets WHERE scan_id=? AND id=?", (ctx.id, aid)).fetchone()
-                    if not have and port in (21, 23, 445, 3389, 5900, 3306, 5432, 6379, 27017, 9200, 1433):
+                    if not ctx.has_asset(aid) and port in (21, 23, 445, 3389, 5900, 3306, 5432, 6379, 27017, 9200, 1433):
                         ctx.finding(ip_id, "medium", f"Censys widzi otwarty port {port}, którego nie potwierdził skan",
                                     "censys", f"{ip}:{port}", "Sprawdź, czy usługa jest dostępna z innych lokalizacji (firewall geograficzny, "
                                     "reguły czasowe) i zamknij ją, jeśli nie jest potrzebna.")
