@@ -1,0 +1,877 @@
+<!doctype html>
+<html lang="pl">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>ASI Cyber Command Center | Global Threat & Attack Map</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;600;800&family=Plus+Jakarta+Sans:wght@400;600;700;800&display=swap" rel="stylesheet">
+<style>
+:root {
+  --bg: #040711;
+  --hud-bg: rgba(9, 14, 26, 0.78);
+  --hud-border: rgba(38, 56, 89, 0.6);
+  --hud-line: #1c2b45;
+  --acc: #38bdf8;
+  --acc-glow: 0 0 15px rgba(56, 189, 248, 0.5);
+  --crit: #ef4444;
+  --crit-glow: 0 0 15px rgba(239, 68, 68, 0.6);
+  --high: #f97316;
+  --med: #f59e0b;
+  --ok: #10b981;
+  --ok-glow: 0 0 15px rgba(16, 185, 129, 0.6);
+  --fg: #f8fafc;
+  --mut: #94a3b8;
+  --mono: 'JetBrains Mono', monospace;
+  --sans: 'Plus Jakarta Sans', system-ui, sans-serif;
+}
+* { box-sizing: border-box; }
+body {
+  margin: 0;
+  background: var(--bg);
+  color: var(--fg);
+  font-family: var(--sans);
+  overflow: hidden;
+  height: 100vh;
+  width: 100vw;
+  user-select: none;
+}
+
+/* 3D Canvas */
+#webgl-canvas {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  z-index: 1;
+}
+
+/* Scanlines & vignette overlay */
+.overlay-fx {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  background: radial-gradient(circle at center, transparent 45%, rgba(2, 4, 10, 0.8) 100%),
+              linear-gradient(rgba(18, 16, 16, 0) 50%, rgba(0, 0, 0, 0.25) 50%);
+  background-size: 100% 100%, 100% 4px;
+  z-index: 2;
+}
+
+/* Top Header */
+header {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 70px;
+  padding: 0 28px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  background: linear-gradient(180deg, rgba(4,7,17,0.95) 0%, rgba(4,7,17,0) 100%);
+  border-bottom: 1px solid rgba(56, 189, 248, 0.15);
+  z-index: 10;
+}
+.header-brand {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+}
+.header-brand h1 {
+  font-size: 19px;
+  font-weight: 800;
+  letter-spacing: 0.05em;
+  margin: 0;
+  text-transform: uppercase;
+  color: #fff;
+  text-shadow: var(--acc-glow);
+}
+.header-badge {
+  font-family: var(--mono);
+  font-size: 11px;
+  font-weight: 700;
+  color: var(--acc);
+  background: rgba(56, 189, 248, 0.12);
+  border: 1px solid var(--acc);
+  padding: 3px 8px;
+  border-radius: 4px;
+  letter-spacing: 0.08em;
+}
+
+.header-center {
+  display: flex;
+  align-items: center;
+  gap: 24px;
+  font-family: var(--mono);
+}
+.header-stat-pill {
+  font-size: 12px;
+  color: var(--mut);
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.header-stat-pill b { color: #fff; font-size: 14px; }
+.pulse-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--ok);
+  box-shadow: var(--ok-glow);
+  animation: pulse-ring 1.5s infinite;
+}
+@keyframes pulse-ring {
+  0% { transform: scale(0.9); opacity: 1; }
+  50% { transform: scale(1.4); opacity: 0.5; }
+  100% { transform: scale(0.9); opacity: 1; }
+}
+
+.header-right {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+}
+.hud-btn {
+  background: rgba(14, 23, 42, 0.85);
+  color: var(--fg);
+  border: 1px solid var(--hud-border);
+  padding: 8px 16px;
+  border-radius: 6px;
+  font-family: var(--mono);
+  font-size: 12px;
+  font-weight: 700;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  transition: all 0.2s ease;
+  text-decoration: none;
+}
+.hud-btn:hover {
+  border-color: var(--acc);
+  color: var(--acc);
+  box-shadow: var(--acc-glow);
+  transform: translateY(-1px);
+}
+.hud-btn.primary {
+  background: rgba(56, 189, 248, 0.15);
+  border-color: var(--acc);
+  color: var(--acc);
+}
+
+/* Left HUD Panel */
+.hud-left {
+  position: absolute;
+  top: 86px;
+  left: 28px;
+  width: 360px;
+  bottom: 28px;
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+  z-index: 10;
+  pointer-events: auto;
+}
+/* Right HUD Panel */
+.hud-right {
+  position: absolute;
+  top: 86px;
+  right: 28px;
+  width: 380px;
+  bottom: 28px;
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+  z-index: 10;
+  pointer-events: auto;
+}
+
+.hud-panel {
+  background: var(--hud-bg);
+  backdrop-filter: blur(14px);
+  border: 1px solid var(--hud-border);
+  border-radius: 12px;
+  padding: 18px;
+  box-shadow: 0 10px 30px rgba(0,0,0,0.5);
+  display: flex;
+  flex-direction: column;
+  position: relative;
+  overflow: hidden;
+}
+.hud-panel::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 30px;
+  height: 2px;
+  background: var(--acc);
+  box-shadow: var(--acc-glow);
+}
+.hud-panel-title {
+  font-family: var(--mono);
+  font-size: 11px;
+  font-weight: 800;
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+  color: var(--acc);
+  margin-bottom: 14px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+/* Metric Gauges */
+.radial-meter-box {
+  display: flex;
+  align-items: center;
+  justify-content: space-around;
+  padding: 10px 0;
+}
+.radial-ring {
+  position: relative;
+  width: 100px;
+  height: 100px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+}
+.radial-ring svg {
+  transform: rotate(-90deg);
+  width: 100px;
+  height: 100px;
+}
+.radial-ring circle {
+  fill: none;
+  stroke-width: 8;
+  stroke-linecap: round;
+}
+.radial-ring .bg-circle { stroke: rgba(255,255,255,0.06); }
+.radial-ring .val-circle {
+  stroke: var(--acc);
+  stroke-dasharray: 251.2;
+  stroke-dashoffset: 251.2;
+  transition: stroke-dashoffset 1s ease;
+  filter: drop-shadow(0 0 6px var(--acc));
+}
+.radial-ring .center-val {
+  position: absolute;
+  font-family: var(--mono);
+  font-size: 24px;
+  font-weight: 800;
+  color: #fff;
+}
+.radial-ring .center-lbl {
+  position: absolute;
+  bottom: 18px;
+  font-size: 10px;
+  font-weight: 700;
+  color: var(--mut);
+  text-transform: uppercase;
+}
+
+/* Severity Bars */
+.sev-bar-item {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 8px;
+  font-size: 12px;
+  font-family: var(--mono);
+}
+.sev-bar-lbl { width: 80px; color: var(--mut); }
+.sev-bar-track {
+  flex: 1;
+  height: 8px;
+  background: rgba(255,255,255,0.06);
+  border-radius: 4px;
+  overflow: hidden;
+}
+.sev-bar-fill {
+  height: 100%;
+  border-radius: 4px;
+  transition: width 0.8s ease;
+}
+.sev-bar-val { width: 30px; text-align: right; font-weight: 700; color: #fff; }
+
+/* Threat Stream Feed */
+.threat-feed {
+  flex: 1;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  max-height: 250px;
+  padding-right: 4px;
+}
+.threat-feed::-webkit-scrollbar { width: 4px; }
+.threat-feed::-webkit-scrollbar-thumb { background: var(--hud-border); border-radius: 2px; }
+
+.threat-feed-item {
+  background: rgba(14, 23, 42, 0.7);
+  border: 1px solid var(--hud-line);
+  border-left: 3px solid var(--acc);
+  border-radius: 6px;
+  padding: 8px 10px;
+  font-size: 12px;
+  transition: transform 0.15s ease;
+}
+.threat-feed-item.crit { border-left-color: var(--crit); }
+.threat-feed-item.high { border-left-color: var(--high); }
+.threat-feed-item.med { border-left-color: var(--med); }
+.threat-feed-title {
+  font-weight: 700;
+  color: #fff;
+  display: flex;
+  justify-content: space-between;
+  margin-bottom: 2px;
+}
+.threat-feed-sub { color: var(--mut); font-family: var(--mono); font-size: 11px; }
+
+/* Geo Target Table */
+.geo-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-family: var(--mono);
+  font-size: 11.5px;
+}
+.geo-table td {
+  padding: 6px 4px;
+  border-bottom: 1px solid rgba(255,255,255,0.04);
+}
+.geo-table td.badge-cell { text-align: right; }
+
+/* Globe Legend & Controls */
+.hud-bottom-center {
+  position: absolute;
+  bottom: 24px;
+  left: 50%;
+  transform: translateX(-50%);
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  background: var(--hud-bg);
+  backdrop-filter: blur(12px);
+  border: 1px solid var(--hud-border);
+  border-radius: 30px;
+  padding: 8px 20px;
+  z-index: 10;
+  font-family: var(--mono);
+  font-size: 11px;
+}
+.legend-item { display: flex; align-items: center; gap: 6px; }
+.legend-dot { width: 10px; height: 10px; border-radius: 50%; }
+.legend-dot.crit { background: var(--crit); box-shadow: var(--crit-glow); }
+.legend-dot.high { background: var(--high); }
+.legend-dot.safe { background: var(--ok); box-shadow: var(--ok-glow); }
+.legend-dot.arc { background: var(--acc); }
+</style>
+</head>
+<body>
+
+<div class="overlay-fx"></div>
+<canvas id="webgl-canvas"></canvas>
+
+<!-- Top Header -->
+<header>
+  <div class="header-brand">
+    <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="var(--acc)" stroke-width="2.5"><circle cx="12" cy="12" r="10"/><path d="m4.93 4.93 4.24 4.24m5.66 5.66 4.24 4.24M12 2v4m0 12v4M2 12h4m12 0h4"/></svg>
+    <h1>Global Threat Command Center</h1>
+    <span class="header-badge">CBI AGH WAR ROOM</span>
+  </div>
+
+  <div class="header-center">
+    <div class="header-stat-pill">
+      <div class="pulse-dot"></div>
+      <span>STAN SYSTEMU: <b>AKTYWNY TELEMETRYCZNY</b></span>
+    </div>
+    <div class="header-stat-pill">
+      <span>CEL SKANU: <b id="hdrTarget">Ładowanie...</b></span>
+    </div>
+    <div class="header-stat-pill">
+      <span>CZAS (UTC): <b id="hdrTime">00:00:00</b></span>
+    </div>
+  </div>
+
+  <div class="header-right">
+    <select id="scanSelector" class="hud-btn" style="background:#090e1a;color:#fff;">
+      <option value="">Wybierz skan...</option>
+    </select>
+    <a href="/" class="hud-btn primary">⬅ Widok Analityka</a>
+  </div>
+</header>
+
+<!-- Left HUD Panel -->
+<div class="hud-left">
+  <!-- Risk Score Gauge -->
+  <div class="hud-panel">
+    <div class="hud-panel-title">
+      <span>Wskaźnik Zagrożenia Powierzchni</span>
+      <span id="riskLabel">RISK SCORE</span>
+    </div>
+    <div class="radial-meter-box">
+      <div class="radial-ring">
+        <svg viewBox="0 0 100 100">
+          <circle class="bg-circle" cx="50" cy="50" r="40" />
+          <circle class="val-circle" id="riskCircle" cx="50" cy="50" r="40" />
+        </svg>
+        <span class="center-val" id="riskVal">0</span>
+        <span class="center-lbl">/ 100</span>
+      </div>
+      <div style="font-size:12.5px;line-height:1.6;">
+        <div>Krytyczne: <b id="kpiCrit" style="color:var(--crit);">0</b></div>
+        <div>Wysokie: <b id="kpiHigh" style="color:var(--high);">0</b></div>
+        <div>Średnie: <b id="kpiMed" style="color:var(--med);">0</b></div>
+        <div>Zasoby: <b id="kpiAssets" style="color:var(--acc);">0</b></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Rozkład Wag Zagrożeń -->
+  <div class="hud-panel">
+    <div class="hud-panel-title">
+      <span>Rozkład Podatności (Telemetry)</span>
+      <span>SEVERITY</span>
+    </div>
+    <div class="sev-bar-item">
+      <span class="sev-bar-lbl" style="color:var(--crit);">Krytyczne</span>
+      <div class="sev-bar-track"><div class="sev-bar-fill" id="barCrit" style="width:0%;background:var(--crit);box-shadow:var(--crit-glow);"></div></div>
+      <span class="sev-bar-val" id="cntCrit">0</span>
+    </div>
+    <div class="sev-bar-item">
+      <span class="sev-bar-lbl" style="color:var(--high);">Wysokie</span>
+      <div class="sev-bar-track"><div class="sev-bar-fill" id="barHigh" style="width:0%;background:var(--high);"></div></div>
+      <span class="sev-bar-val" id="cntHigh">0</span>
+    </div>
+    <div class="sev-bar-item">
+      <span class="sev-bar-lbl" style="color:var(--med);">Średnie</span>
+      <div class="sev-bar-track"><div class="sev-bar-fill" id="barMed" style="width:0%;background:var(--med);"></div></div>
+      <span class="sev-bar-val" id="cntMed">0</span>
+    </div>
+    <div class="sev-bar-item">
+      <span class="sev-bar-lbl" style="color:var(--acc);">Niskie</span>
+      <div class="sev-bar-track"><div class="sev-bar-fill" id="barLow" style="width:0%;background:var(--acc);"></div></div>
+      <span class="sev-bar-val" id="cntLow">0</span>
+    </div>
+  </div>
+
+  <!-- Aktywne Promienie / Skaner HQ -->
+  <div class="hud-panel" style="flex:1;">
+    <div class="hud-panel-title">
+      <span>Centrum Operacyjne (Scanner HQ)</span>
+      <span>CBI AGH</span>
+    </div>
+    <div style="font-family:var(--mono);font-size:12px;color:var(--mut);line-height:1.7;">
+      <div>LOKALIZACJA: <b style="color:#fff;">Kraków, Polska (AGH)</b></div>
+      <div>WSPÓŁRZĘDNE: <b style="color:var(--acc);">50.0664° N, 19.9135° E</b></div>
+      <div>AKTYWNE ŁUKI: <b id="kpiArcs" style="color:var(--ok);">0 strumieni</b></div>
+      <div>TRYB ORKIESTRACJI: <b style="color:#fff;">Nmap / Naabu / Httpx / Nuclei</b></div>
+    </div>
+    <div style="margin-top:auto;padding-top:12px;border-top:1px solid var(--hud-line);font-size:11px;color:var(--mut);">
+      Przeciągaj myszką, aby obrócić globus. Scrolluj, aby przybliżyć.
+    </div>
+  </div>
+</div>
+
+<!-- Right HUD Panel -->
+<div class="hud-right">
+  <!-- Live Incident Feed -->
+  <div class="hud-panel" style="flex:1.2;">
+    <div class="hud-panel-title">
+      <span>Strumień Wykrytych Zagrożeń (Live)</span>
+      <span style="color:var(--crit);animation:pulse-ring 1s infinite;">● REAL-TIME</span>
+    </div>
+    <div class="threat-feed" id="threatFeed">
+      <div style="color:var(--mut);text-align:center;padding:20px;">Oczekiwanie na telemetrię...</div>
+    </div>
+  </div>
+
+  <!-- Geographic Distribution -->
+  <div class="hud-panel" style="flex:1;">
+    <div class="hud-panel-title">
+      <span>Rozkład Geograficzny Celów</span>
+      <span>IP GEO-MAP</span>
+    </div>
+    <div style="overflow-y:auto;max-height:180px;">
+      <table class="geo-table">
+        <thead>
+          <tr style="color:var(--mut);border-bottom:1px solid var(--hud-line);">
+            <td>IP / HOST</td>
+            <td>LOKALIZACJA</td>
+            <td style="text-align:right;">STATUS</td>
+          </tr>
+        </thead>
+        <tbody id="geoTableBody">
+          <tr><td colspan="3" style="color:var(--mut);text-align:center;">Brak danych geolokalizacji.</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+</div>
+
+<!-- Bottom Legend -->
+<div class="hud-bottom-center">
+  <div class="legend-item"><div class="legend-dot safe"></div><span>HQ Skanera (Kraków)</span></div>
+  <div class="legend-item"><div class="legend-dot crit"></div><span>Host Zagrożony (Krytyczny/Wysoki)</span></div>
+  <div class="legend-item"><div class="legend-dot high"></div><span>Host ze Średnim Ryzykiem</span></div>
+  <div class="legend-item"><div class="legend-dot arc"></div><span>Łuk Skanera (Strumień zapytań)</span></div>
+</div>
+
+<!-- Three.js + OrbitControls -->
+<script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/controls/OrbitControls.js"></script>
+
+<script>
+// Zegar w nagłówku
+setInterval(() => {
+  const d = new Date();
+  document.getElementById('hdrTime').textContent = d.toTimeString().split(' ')[0];
+}, 1000);
+
+let scene, camera, renderer, controls;
+let globeGroup;
+let arcObjects = [];
+let markerObjects = [];
+let activeScanData = null;
+
+const GLOBE_RADIUS = 100;
+const HQ_COORDS = { lat: 50.0664, lon: 19.9135 }; // Kraków, AGH
+
+function initThree() {
+  const canvas = document.getElementById('webgl-canvas');
+  scene = new THREE.Scene();
+  scene.fog = new THREE.FogExp2(0x040711, 0.0018);
+
+  camera = new THREE.PerspectiveCamera(45, window.innerWidth / window.innerHeight, 1, 2000);
+  camera.position.set(0, 40, 290);
+
+  renderer = new THREE.WebGLRenderer({ canvas, antialias: true, alpha: true });
+  renderer.setSize(window.innerWidth, window.innerHeight);
+  renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+
+  controls = new THREE.OrbitControls(camera, renderer.domElement);
+  controls.enableDamping = true;
+  controls.dampingFactor = 0.05;
+  controls.rotateSpeed = 0.6;
+  controls.minDistance = 140;
+  controls.maxDistance = 600;
+  controls.autoRotate = true;
+  controls.autoRotateSpeed = 0.4;
+
+  globeGroup = new THREE.Group();
+  scene.add(globeGroup);
+
+  // 1. Ciemna baza sfery
+  const sphereGeo = new THREE.SphereGeometry(GLOBE_RADIUS, 64, 64);
+  const sphereMat = new THREE.MeshBasicMaterial({
+    color: 0x071122,
+    transparent: true,
+    opacity: 0.95
+  });
+  const sphere = new THREE.Mesh(sphereGeo, sphereMat);
+  globeGroup.add(sphere);
+
+  // 2. Siatka neonowa / szerokości i długości
+  const wireGeo = new THREE.SphereGeometry(GLOBE_RADIUS + 0.3, 36, 18);
+  const wireMat = new THREE.MeshBasicMaterial({
+    color: 0x1e3a5f,
+    wireframe: true,
+    transparent: true,
+    opacity: 0.28
+  });
+  globeGroup.add(new THREE.Mesh(wireGeo, wireMat));
+
+  // 3. Poświata atmosfery wokół globusa
+  const glowGeo = new THREE.SphereGeometry(GLOBE_RADIUS * 1.15, 32, 32);
+  const glowMat = new THREE.ShaderMaterial({
+    vertexShader: `
+      varying vec3 vNormal;
+      void main() {
+        vNormal = normalize(normalMatrix * normal);
+        gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
+      }
+    `,
+    fragmentShader: `
+      varying vec3 vNormal;
+      void main() {
+        float intensity = pow(0.65 - dot(vNormal, vec3(0, 0, 1.0)), 2.0);
+        gl_FragColor = vec4(0.22, 0.74, 0.97, 1.0) * intensity * 0.4;
+      }
+    `,
+    blending: THREE.AdditiveBlending,
+    side: THREE.BackSide,
+    transparent: true
+  });
+  globeGroup.add(new THREE.Mesh(glowGeo, glowMat));
+
+  // 4. Gwiazdy w tle
+  createStarfield();
+
+  // Punkt bazowy HQ w Krakowie
+  addHQMarker();
+
+  window.addEventListener('resize', onWindowResize);
+  animate();
+}
+
+function createStarfield() {
+  const count = 1200;
+  const geom = new THREE.BufferGeometry();
+  const pos = new Float32Array(count * 3);
+  for (let i = 0; i < count * 3; i += 3) {
+    pos[i] = (Math.random() - 0.5) * 1600;
+    pos[i + 1] = (Math.random() - 0.5) * 1600;
+    pos[i + 2] = (Math.random() - 0.5) * 1600;
+  }
+  geom.setAttribute('position', new THREE.BufferAttribute(pos, 3));
+  const mat = new THREE.PointsMaterial({ color: 0x475569, size: 1.5, transparent: true, opacity: 0.6 });
+  scene.add(new THREE.Points(geom, mat));
+}
+
+// Konwersja współrzędnych geograficznych (lat, lon) na wektor 3D na sferze
+function latLonToVector3(lat, lon, radius = GLOBE_RADIUS) {
+  const phi = (90 - lat) * (Math.PI / 180);
+  const theta = (lon + 180) * (Math.PI / 180);
+  const x = -(radius * Math.sin(phi) * Math.cos(theta));
+  const z = radius * Math.sin(phi) * Math.sin(theta);
+  const y = radius * Math.cos(phi);
+  return new THREE.Vector3(x, y, z);
+}
+
+// Marker HQ w Krakowie
+function addHQMarker() {
+  const v = latLonToVector3(HQ_COORDS.lat, HQ_COORDS.lon, GLOBE_RADIUS + 1.2);
+  const dotGeo = new THREE.SphereGeometry(2.2, 16, 16);
+  const dotMat = new THREE.MeshBasicMaterial({ color: 0x10b981 });
+  const dot = new THREE.Mesh(dotGeo, dotMat);
+  dot.position.copy(v);
+  globeGroup.add(dot);
+
+  // Pulsujący ring wokół Krakowa
+  const ringGeo = new THREE.RingGeometry(2.5, 4.5, 32);
+  const ringMat = new THREE.MeshBasicMaterial({ color: 0x10b981, side: THREE.DoubleSide, transparent: true, opacity: 0.8 });
+  const ring = new THREE.Mesh(ringGeo, ringMat);
+  ring.position.copy(v);
+  ring.lookAt(new THREE.Vector3(0, 0, 0));
+  globeGroup.add(ring);
+}
+
+// Tworzenie animowanego parabolicznego łuku między 2 punktami na kuli
+function createCurvedArc(vStart, vEnd, colorHex) {
+  const distance = vStart.distanceTo(vEnd);
+  const mid = new THREE.Vector3().addVectors(vStart, vEnd).multiplyScalar(0.5);
+  // Wysokość łuku proporcjonalna do odległości
+  const midLength = mid.length();
+  mid.normalize().multiplyScalar(midLength + distance * 0.35);
+
+  const curve = new THREE.QuadraticBezierCurve3(vStart, mid, vEnd);
+  const points = curve.getPoints(50);
+  const geom = new THREE.BufferGeometry().setFromPoints(points);
+  const mat = new THREE.LineBasicMaterial({
+    color: colorHex,
+    transparent: true,
+    opacity: 0.6,
+    linewidth: 2
+  });
+  const line = new THREE.Line(geom, mat);
+
+  // Latający pocisk / cząsteczka wzdłuż łuku
+  const particleGeo = new THREE.SphereGeometry(1.2, 8, 8);
+  const particleMat = new THREE.MeshBasicMaterial({ color: 0xffffff });
+  const particle = new THREE.Mesh(particleGeo, particleMat);
+
+  globeGroup.add(line);
+  globeGroup.add(particle);
+  arcObjects.push({ line, particle, curve, progress: Math.random() });
+}
+
+// Czyszczenie poprzednich celów i łuków
+function clearGlobeThreats() {
+  arcObjects.forEach(a => {
+    globeGroup.remove(a.line);
+    globeGroup.remove(a.particle);
+  });
+  arcObjects = [];
+
+  markerObjects.forEach(m => globeGroup.remove(m));
+  markerObjects = [];
+}
+
+// Aktualizacja globusa na podstawie danych skanu
+function updateGlobeWithScanData(data) {
+  clearGlobeThreats();
+  const nodes = data.geo_nodes || [];
+  const hqPos = latLonToVector3(HQ_COORDS.lat, HQ_COORDS.lon, GLOBE_RADIUS + 1);
+
+  let arcsCount = 0;
+  nodes.forEach(node => {
+    if (node.is_hq) return;
+    const pos = latLonToVector3(node.lat, node.lon, GLOBE_RADIUS + 1);
+
+    // Kolor w zależności od ważności podatności
+    let colorHex = 0x38bdf8; // low/info
+    if (node.severity === 'critical') colorHex = 0xef4444;
+    else if (node.severity === 'high') colorHex = 0xf97316;
+    else if (node.severity === 'medium') colorHex = 0xf59e0b;
+
+    // Punkt na mapie
+    const pinGeo = new THREE.SphereGeometry(node.severity === 'critical' ? 2.5 : 1.8, 16, 16);
+    const pinMat = new THREE.MeshBasicMaterial({ color: colorHex });
+    const pin = new THREE.Mesh(pinGeo, pinMat);
+    pin.position.copy(pos);
+    globeGroup.add(pin);
+    markerObjects.push(pin);
+
+    // Pulsujący ring wokół zagrożonego hosta
+    if (['critical', 'high', 'medium'].includes(node.severity)) {
+      const ringGeo = new THREE.RingGeometry(2.5, 4.8, 24);
+      const ringMat = new THREE.MeshBasicMaterial({ color: colorHex, side: THREE.DoubleSide, transparent: true, opacity: 0.75 });
+      const ring = new THREE.Mesh(ringGeo, ringMat);
+      ring.position.copy(pos);
+      ring.lookAt(new THREE.Vector3(0, 0, 0));
+      globeGroup.add(ring);
+      markerObjects.push(ring);
+    }
+
+    // Łuk ataku/skanu od HQ do celu!
+    createCurvedArc(hqPos, pos, colorHex);
+    arcsCount++;
+  });
+
+  document.getElementById('kpiArcs').textContent = `${arcsCount} strumieni`;
+}
+
+function onWindowResize() {
+  camera.aspect = window.innerWidth / window.innerHeight;
+  camera.updateProjectionMatrix();
+  renderer.setSize(window.innerWidth, window.innerHeight);
+}
+
+// Pętla animacji
+let clock = new THREE.Clock();
+function animate() {
+  requestAnimationFrame(animate);
+  const delta = clock.getDelta();
+  controls.update();
+
+  // Animacja lecących cząsteczek wzdłuż łuków
+  arcObjects.forEach(arc => {
+    arc.progress = (arc.progress + delta * 0.45) % 1.0;
+    const pt = arc.curve.getPoint(arc.progress);
+    arc.particle.position.copy(pt);
+  });
+
+  renderer.render(scene, camera);
+}
+
+// ----------------- Integracja z API -----------------
+async function api(path) {
+  const r = await fetch(path);
+  if (!r.ok) throw new Error(r.statusText);
+  return r.json();
+}
+
+async function loadScansList() {
+  const list = await api('/api/scans');
+  const sel = document.getElementById('scanSelector');
+  sel.innerHTML = '<option value="">Wybierz skan...</option>' + list.map(s => `
+    <option value="${s.id}">#${s.id} - ${s.target} (Score: ${s.score})</option>
+  `).join('');
+
+  if (list.length) {
+    sel.value = list[0].id;
+    loadScanData(list[0].id);
+  }
+  sel.onchange = () => { if (sel.value) loadScanData(sel.value); };
+}
+
+async function loadScanData(sid) {
+  try {
+    const d = await api('/api/scans/' + sid);
+    activeScanData = d;
+    updateHUD(d);
+    updateGlobeWithScanData(d);
+  } catch (e) {
+    console.error("Błąd pobierania skanu:", e);
+  }
+}
+
+function updateHUD(d) {
+  const s = d.scan;
+  const counts = d.counts || {};
+  document.getElementById('hdrTarget').textContent = s.target;
+
+  // Radial Risk Meter
+  const score = s.score || 0;
+  document.getElementById('riskVal').textContent = score;
+  const circle = document.getElementById('riskCircle');
+  const offset = 251.2 - (251.2 * score) / 100;
+  circle.style.strokeDashoffset = offset;
+  circle.style.stroke = score >= 60 ? 'var(--crit)' : (score >= 30 ? 'var(--high)' : 'var(--acc)');
+
+  // KPIs
+  document.getElementById('kpiCrit').textContent = counts.critical || 0;
+  document.getElementById('kpiHigh').textContent = counts.high || 0;
+  document.getElementById('kpiMed').textContent = counts.medium || 0;
+  document.getElementById('kpiAssets').textContent = d.assets.length || 0;
+
+  // Severity Bars
+  const total = d.findings.length || 1;
+  const setBar = (id, cntId, val) => {
+    document.getElementById(cntId).textContent = val;
+    document.getElementById(id).style.width = `${Math.min(100, Math.round((val / total) * 100))}%`;
+  };
+  setBar('barCrit', 'cntCrit', counts.critical || 0);
+  setBar('barHigh', 'cntHigh', counts.high || 0);
+  setBar('barMed', 'cntMed', counts.medium || 0);
+  setBar('barLow', 'cntLow', (counts.low || 0) + (counts.info || 0));
+
+  // Feed Zagrożeń
+  const feed = document.getElementById('threatFeed');
+  if (!d.findings.length) {
+    feed.innerHTML = '<div style="color:var(--ok);text-align:center;padding:20px;">Brak krytycznych zagrożeń.</div>';
+  } else {
+    feed.innerHTML = d.findings.slice(0, 15).map(f => `
+      <div class="threat-feed-item ${f.severity === 'critical' ? 'crit' : (f.severity === 'high' ? 'high' : 'med')}">
+        <div class="threat-feed-title">
+          <span>${esc(f.title)}</span>
+          <span style="font-family:var(--mono);text-transform:uppercase;">${f.severity}</span>
+        </div>
+        <div class="threat-feed-sub">CEL: ${esc(f.asset)} · ŹRÓDŁO: ${esc(f.source)}</div>
+      </div>
+    `).join('');
+  }
+
+  // Tabela Geograficzna
+  const tbody = document.getElementById('geoTableBody');
+  const nodes = d.geo_nodes || [];
+  if (!nodes.length) {
+    tbody.innerHTML = '<tr><td colspan="3" style="color:var(--mut);text-align:center;">Brak danych geolokalizacji.</td></tr>';
+  } else {
+    tbody.innerHTML = nodes.map(n => `
+      <tr>
+        <td style="color:#fff;">${esc(n.ip)}</td>
+        <td style="color:var(--mut);">${esc(n.city)}, ${esc(n.country)}</td>
+        <td class="badge-cell">
+          <span style="color:${n.severity === 'critical' ? 'var(--crit)' : (n.severity === 'high' ? 'var(--high)' : 'var(--ok)')}">
+            ${n.is_hq ? 'HQ (SCANNER)' : n.severity.toUpperCase()}
+          </span>
+        </td>
+      </tr>
+    `).join('');
+  }
+}
+
+function esc(s) {
+  return String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+}
+
+// Start
+initThree();
+loadScansList();
+</script>
+</body>
+</html>

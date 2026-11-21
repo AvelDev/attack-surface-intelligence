@@ -13,7 +13,7 @@ from fastapi import Cookie, Depends, FastAPI, File, Form, HTTPException, Respons
 from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, Response
 from pydantic import BaseModel
 
-from . import auth, crypto, db, defectdojo, scanner
+from . import auth, crypto, db, defectdojo, geo, scanner
 from . import signatures as signatures_mod
 from . import targets as targets_mod
 
@@ -435,11 +435,54 @@ def get_scan(sid: int, user: dict = Depends(auth.require("read"))):
     s, assets, edges, findings = _load(sid)
     s["log"] = "".join(s["log"].splitlines(True)[-400:])
     counts = {k: 0 for k in SEV_ORDER}
+    threat_map = {}
     for f in findings:
         counts[f["severity"]] = counts.get(f["severity"], 0) + 1
+        curr_sev = threat_map.get(f["asset"], "info")
+        if SEV_ORDER.get(f["severity"], 9) < SEV_ORDER.get(curr_sev, 9):
+            threat_map[f["asset"]] = f["severity"]
+
     live_score = scanner.risk_score([f["severity"] for f in findings])
     s["score"] = s["score"] if s["status"] == "done" else live_score
+
+    # Geolokalizacja dla mapy 3D Command Center
+    geo_nodes = []
+    seen_ips = set()
+    for a in assets:
+        ip_val = None
+        if a["kind"] == "ip":
+            ip_val = a["value"]
+        elif a["kind"] == "port":
+            ip_val = a["value"].split(":")[0]
+
+        if ip_val and ip_val not in seen_ips:
+            seen_ips.add(ip_val)
+            g = geo.locate_ip(ip_val)
+            highest_sev = threat_map.get(a["id"], threat_map.get(f"ip:{ip_val}", "low"))
+            geo_nodes.append({
+                "id": a["id"],
+                "ip": ip_val,
+                "lat": g["lat"],
+                "lon": g["lon"],
+                "country": g["country"],
+                "city": g["city"],
+                "is_hq": g.get("is_hq", False),
+                "severity": highest_sev
+            })
+
+    geo_nodes.append({
+        "id": "scanner:hq",
+        "ip": "127.0.0.1",
+        "lat": geo.HQ_KRAKOW["lat"],
+        "lon": geo.HQ_KRAKOW["lon"],
+        "country": "PL",
+        "city": "CBI AGH (Kraków)",
+        "is_hq": True,
+        "severity": "ok"
+    })
+
     return {"scan": s, "assets": assets, "edges": edges, "findings": findings, "counts": counts,
+            "geo_nodes": geo_nodes,
             "diff": _diff(sid, s["target_hash"], assets, findings) if s["status"] == "done" else None}
 
 
