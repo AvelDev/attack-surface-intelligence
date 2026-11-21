@@ -5,13 +5,16 @@ powodują odrzucenie CAŁEGO importu ("Not allowed fields are present"), więc
 wysyłamy tylko ściśle udokumentowany zestaw: title/severity/description/
 mitigation/references.
 """
+import ipaddress
 import json
 import os
+import socket
 import urllib.error
+import urllib.parse
 import urllib.request
 import uuid
 
-from . import db
+from . import crypto, db
 
 ENV_URL = os.environ.get("ASI_DEFECTDOJO_URL", "").rstrip("/")
 ENV_API_KEY = os.environ.get("ASI_DEFECTDOJO_API_KEY", "")
@@ -23,19 +26,40 @@ SEV_MAP = {"critical": "Critical", "high": "High", "medium": "Medium", "low": "L
 
 
 def get_config():
-    url, key = ENV_URL, ENV_API_KEY
-    if not (url and key):
-        try:
-            with db.conn() as c:
-                row_url = c.execute("SELECT value FROM settings WHERE key='defectdojo_url'").fetchone()
-                row_key = c.execute("SELECT value FROM settings WHERE key='defectdojo_api_key'").fetchone()
-                if row_url and row_url["value"]:
-                    url = row_url["value"].rstrip("/")
-                if row_key and row_key["value"]:
-                    key = row_key["value"].strip()
-        except Exception:
-            pass
-    return url, key
+    """Zwraca (url, api_key) z JEDNEGO źródła - albo oba ze zmiennych środowiskowych, albo
+    oba z bazy (zaszyfrowany klucz) - nigdy mieszanki, żeby nie dało się np. podmienić samego
+    URL-a przez UI, a mimo to wysyłać z nim legalny klucz API skonfigurowany w env przez admina."""
+    if ENV_URL and ENV_API_KEY:
+        return ENV_URL, ENV_API_KEY
+    try:
+        with db.conn() as c:
+            row_url = c.execute("SELECT value FROM settings WHERE key='defectdojo_url'").fetchone()
+            row_key = c.execute("SELECT value FROM settings WHERE key='defectdojo_api_key'").fetchone()
+        url = (row_url["value"].rstrip("/") if row_url and row_url["value"] else "")
+        key = (crypto.dec(row_key["value"]) if row_key and row_key["value"] else "")
+        if url and key:
+            return url, key
+    except Exception:  # noqa: BLE001
+        pass
+    return "", ""
+
+
+def validate_url(url):
+    """Odrzuca adresy, które po rozwiązaniu DNS wskazują na loopback/prywatną/link-local sieć -
+    ustawienie DefectDojo jest dostępne dla roli 'admin', ale i tak nie powinno dać się go użyć
+    jako SSRF-owej furtki do wewnętrznych usług ASI (ani jako cichego przekierowania eksportu
+    ustaleń ze skanów na dowolny serwer)."""
+    p = urllib.parse.urlsplit(url)
+    if p.scheme not in ("http", "https") or not p.hostname:
+        raise ValueError("URL musi być postaci http(s)://host[:port].")
+    try:
+        infos = socket.getaddrinfo(p.hostname, None)
+    except socket.gaierror as e:
+        raise ValueError(f"Nie można rozwiązać hosta {p.hostname}: {e}") from e
+    for info in infos:
+        ip = ipaddress.ip_address(info[4][0])
+        if not ip.is_global:
+            raise ValueError(f"{p.hostname} wskazuje na adres niepubliczny ({ip}) - niedozwolone.")
 
 
 def configured():

@@ -568,10 +568,19 @@ def get_settings(user: dict = Depends(auth.require("read"))):
 
 
 @app.post("/api/settings/defectdojo")
-def save_defectdojo_settings(req: DefectDojoSettingsReq, user: dict = Depends(auth.require("add_remove_modify"))):
+def save_defectdojo_settings(req: DefectDojoSettingsReq, user: dict = Depends(auth.require("admin"))):
+    # admin-only: to ustawienie kieruje, gdzie trafiają ustalenia ze WSZYSTKICH skanów -
+    # rola niższa niż admin mogłaby po cichu przekierować eksport na dowolny serwer (SSRF /
+    # eksfiltracja danych), stąd też walidacja URL-a poniżej.
+    url = req.url.strip()
+    try:
+        defectdojo.validate_url(url)
+    except ValueError as e:
+        raise HTTPException(400, str(e))
     with db.conn() as c:
-        c.execute("INSERT OR REPLACE INTO settings(key, value) VALUES('defectdojo_url', ?)", (req.url.strip(),))
-        c.execute("INSERT OR REPLACE INTO settings(key, value) VALUES('defectdojo_api_key', ?)", (req.api_key.strip(),))
+        c.execute("INSERT OR REPLACE INTO settings(key, value) VALUES('defectdojo_url', ?)", (url,))
+        c.execute("INSERT OR REPLACE INTO settings(key, value) VALUES('defectdojo_api_key', ?)",
+                  (crypto.enc(req.api_key.strip()),))
     return {"ok": True}
 
 

@@ -942,7 +942,9 @@ function renderScan(d) {
                 <td class="code-cell">${esc(f.asset)}</td>
                 <td style="color:var(--mut);">${esc(f.fix || '—')}</td>
                 <td><span class="pill info">${esc(f.source)}</span></td>
-                <td><button class="secondary" style="padding:4px 8px;font-size:11px;" onclick="openTriageModal(${f.rowid}, '${esc(f.asset)}', '${esc(f.title)}', '${esc(f.severity)}', '${esc(f.fix)}')">Edytuj</button></td>
+                <td><button class="secondary triage-btn" style="padding:4px 8px;font-size:11px;"
+                    data-rowid="${f.rowid}" data-asset="${esc(f.asset)}" data-title="${esc(f.title)}"
+                    data-severity="${esc(f.severity)}" data-fix="${esc(f.fix)}">Edytuj</button></td>
               </tr>
             `).join('')}
           </tbody>
@@ -1011,7 +1013,7 @@ function renderScan(d) {
             </ul>
             ${(df.confirmed_offline && df.confirmed_offline.length) ? `
               <div style="margin-top:10px;color:var(--critical);font-size:12.5px;">
-                <b>Potwierdzony brak odpowiedzi po $\\ge 3$ sukcesywnych skanach:</b> ${df.confirmed_offline.join(', ')}
+                <b>Potwierdzony brak odpowiedzi po kilku sukcesywnych skanach:</b> ${df.confirmed_offline.map(esc).join(', ')}
               </div>
             ` : ''}
           </div>
@@ -1067,6 +1069,8 @@ function renderScan(d) {
   `;
 
   // Podpięcie akcji
+  document.querySelectorAll('.triage-btn').forEach(b => b.onclick = () => openTriageModal(
+    +b.dataset.rowid, b.dataset.asset, b.dataset.title, b.dataset.severity, b.dataset.fix));
   $('#btnExportDD').onclick = async () => {
     try {
       $('#btnExportDD').textContent = 'Wysyłanie...';

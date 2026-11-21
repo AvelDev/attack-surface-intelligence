@@ -778,7 +778,7 @@ async function loadScansList() {
   const list = await api('/api/scans');
   const sel = document.getElementById('scanSelector');
   sel.innerHTML = '<option value="">Wybierz skan...</option>' + list.map(s => `
-    <option value="${s.id}">#${s.id} - ${s.target} (Score: ${s.score})</option>
+    <option value="${s.id}">#${s.id} - ${esc(s.target)} (Score: ${s.score})</option>
   `).join('');
 
   if (list.length) {
