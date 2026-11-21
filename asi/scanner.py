@@ -482,7 +482,20 @@ TECH_BODY_HINTS = [
     ("drupal.settings", "Drupal"), ("/sites/default/", "Drupal"), ("cdn.shopify.com", "Shopify"),
     ("__next_data__", "Next.js"), ("ng-version", "Angular"), ("data-reactroot", "React"),
 ]
-GENERATOR_RE = re.compile(r'<meta[^>]+name=["\']generator["\'][^>]+content=["\']([^"\']+)', re.I)
+# Każdy wzorzec ograniczony ({0,N}), bez dwóch sąsiadujących nieograniczonych kwantyfikatorów -
+# body to treść strony kontrolowanej przez skanowany host (ReDoS, p. signatures.py dla analogii).
+META_TAG_RE = re.compile(r'<meta\b[^>]{0,500}>', re.I)
+GENERATOR_NAME_RE = re.compile(r'name=["\']generator["\']', re.I)
+GENERATOR_CONTENT_RE = re.compile(r'content=["\']([^"\']{0,200})', re.I)
+
+
+def _detect_generator(body):
+    for tag in META_TAG_RE.findall((body or "")[:8192]):
+        if GENERATOR_NAME_RE.search(tag):
+            m = GENERATOR_CONTENT_RE.search(tag)
+            if m:
+                return m.group(1).strip()[:60]
+    return None
 
 
 def detect_tech(headers, body):
@@ -501,9 +514,9 @@ def detect_tech(headers, body):
     for needle, name in TECH_BODY_HINTS:
         if needle in low_body:
             found.add(name)
-    m = GENERATOR_RE.search(body or "")
-    if m:
-        found.add(m.group(1).strip()[:60])
+    generator = _detect_generator(body)
+    if generator:
+        found.add(generator)
     return sorted(found)
 
 
