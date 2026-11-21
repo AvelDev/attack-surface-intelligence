@@ -17,15 +17,54 @@ Typy html_regex/footer_version_regex działają tylko gdy mamy treść strony (f
 w czystym Pythonie ją zapisuje; httpx z ProjectDiscovery w tym PoC jej nie zwraca).
 """
 import hashlib
+import multiprocessing
 import re
 import ssl
 import urllib.error
+import urllib.parse
 import urllib.request
 
 from . import db
 
 TYPES = ("header_present", "cookie_name", "html_regex", "footer_version_regex",
          "path_check", "favicon_hash")
+
+REGEX_TIMEOUT_S = 2  # sygnatury html_regex/footer_version_regex to regexy od usera - limit przed ReDoS
+
+_SAFE_PATH_RE = re.compile(r"^/[\x21-\x7e]*$")  # jeden wiodący '/', bez spacji/znaków sterujących
+
+
+class _NoRedirect(urllib.request.HTTPRedirectHandler):
+    def redirect_request(self, *a, **k):
+        return None
+
+
+def _regex_worker(pat, text, q):
+    try:
+        q.put(bool(re.search(pat, text, re.I)))
+    except re.error:
+        q.put(False)
+
+
+def _regex_search(pat, text):
+    """re.search z limitem czasu - sygnatura to regex od użytkownika (rola add_remove_modify),
+    katastroficzny backtracking (ReDoS) nie może zawiesić skanu. Osobny proces, nie wątek:
+    wątku w Pythonie nie da się wymusić do zatrzymania w trakcie dopasowywania regexa w C
+    (future.result(timeout=...) tylko przestaje czekać, porzucony wątek dalej pali CPU
+    w nieskończoność), proces można zabić sygnałem."""
+    ctx = multiprocessing.get_context("fork")  # 'fork' (Linux/WSL - jedyna platforma ASI) nie
+    q = ctx.Queue()                            # wymaga reimportu __main__ jak spawn/forkserver
+    p = ctx.Process(target=_regex_worker, args=(pat, text, q), daemon=True)
+    p.start()
+    p.join(REGEX_TIMEOUT_S)
+    if p.is_alive():
+        p.kill()
+        p.join(1)
+        return False
+    try:
+        return q.get_nowait()
+    except Exception:  # noqa: BLE001
+        return False
 
 
 def list_all(enabled_only=True):
@@ -35,11 +74,22 @@ def list_all(enabled_only=True):
 
 
 def _fetch_path(url, path, timeout=6):
+    """GET path względem url - tylko w obrębie dokładnie tego samego scheme/host/port
+    (path to wzorzec sygnatury od użytkownika, bez tego sprawdzenia np. '@evil.com/x'
+    albo '//evil.com' dałoby SSRF). Przekierowania wyłączone z tego samego powodu."""
+    if not path.startswith("/") or path.startswith("//") or not _SAFE_PATH_RE.match(path):
+        return None, b""
+    base = urllib.parse.urlsplit(url)
+    target = urllib.parse.urljoin(url, path)
+    t = urllib.parse.urlsplit(target)
+    if (t.scheme, t.hostname, t.port) != (base.scheme, base.hostname, base.port):
+        return None, b""
     ctxt = ssl.create_default_context()
     ctxt.check_hostname, ctxt.verify_mode = False, ssl.CERT_NONE
-    req = urllib.request.Request(url.rstrip("/") + path, headers={"User-Agent": "asi-poc"})
+    opener = urllib.request.build_opener(_NoRedirect, urllib.request.HTTPSHandler(context=ctxt))
+    req = urllib.request.Request(target, headers={"User-Agent": "asi-poc"})
     try:
-        with urllib.request.urlopen(req, timeout=timeout, context=ctxt) as r:
+        with opener.open(req, timeout=timeout) as r:
             return r.status, r.read(65536)
     except urllib.error.HTTPError as e:
         return e.code, (e.read(2048) if e.fp else b"")
@@ -54,7 +104,7 @@ def _check(sig, url, hdr, body):
     if t == "cookie_name":
         return bool(re.search(rf"(?i)\b{re.escape(pat)}=", hdr.get("set-cookie", "")))
     if t in ("html_regex", "footer_version_regex"):
-        return bool(body) and bool(re.search(pat, body, re.I))
+        return bool(body) and _regex_search(pat, body)
     if t == "path_check":
         status, _ = _fetch_path(url, pat)
         return status is not None and status < 400

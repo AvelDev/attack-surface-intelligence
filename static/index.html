@@ -94,7 +94,12 @@ a{color:var(--acc)}
       </div>
       <button id="goFile" class="secondary">Importuj i skanuj</button>
     </div>
-    <div class="card"><h2>Skany</h2><div id="scans"></div></div>
+    <div class="card"><h2>Skany</h2><div id="scans"></div>
+      <h3>Importuj gotowe wyniki (JSON/CSV)</h3>
+      <div class="field"><input id="resFile" type="file" accept=".json,.csv"></div>
+      <button id="resImport" class="secondary">Importuj wyniki</button>
+      <div class="err" id="resErr"></div>
+    </div>
     <div class="card"><h2>Narzędzia</h2><div id="tools"></div></div>
     <div class="card" id="sigCard">
       <h2>Własne sygnatury</h2>
@@ -324,6 +329,18 @@ $('#goFile').onclick = async () => {
     const r = await api('/api/scans/import-targets', {method: 'POST', body: fd});
     showWarnings(r); select(r.id);
   } catch (e) { $('#err').textContent = e.message; }
+};
+
+$('#resImport').onclick = async () => {
+  $('#resErr').textContent = '';
+  try {
+    const f = $('#resFile').files[0];
+    if (!f) throw new Error('Wybierz plik JSON lub CSV.');
+    const fd = new FormData();
+    fd.append('file', f);
+    const r = await api('/api/scans/import-results', {method: 'POST', body: fd});
+    select(r.id);
+  } catch (e) { $('#resErr').textContent = e.message; }
 };
 
 async function startApp(me) {

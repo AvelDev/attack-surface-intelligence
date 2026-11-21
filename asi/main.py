@@ -218,6 +218,63 @@ async def import_targets(file: UploadFile = File(...), authorized: bool = Form(F
     return resp
 
 
+@app.post("/api/scans/import-results")
+async def import_results(file: UploadFile = File(...), user: dict = Depends(auth.require("add_remove_modify"))):
+    """Import gotowych wyników (nie celów do skanowania) - format symetryczny do
+    /api/scans/{id}/export.json. CSV (format export.csv) importuje same findingi,
+    bez grafu zasobów."""
+    text = (await file.read()).decode("utf-8", "ignore")
+    name = (file.filename or "").lower()
+    scan_meta, assets, edges, findings = {}, [], [], []
+    if name.endswith(".json"):
+        try:
+            data = json.loads(text)
+        except json.JSONDecodeError as e:
+            raise HTTPException(400, f"Nieprawidłowy JSON: {e}")
+        scan_meta = data.get("scan") or {}
+        assets = [a for a in (data.get("assets") or []) if a.get("id") and a.get("kind") and "value" in a]
+        edges = [e for e in (data.get("edges") or []) if e.get("src") and e.get("dst")]
+        findings = data.get("findings") or []
+    elif name.endswith(".csv"):
+        findings = list(csv.DictReader(io.StringIO(text)))
+    else:
+        raise HTTPException(400, "Obsługiwane formaty pliku: .json, .csv")
+    if not assets and not findings:
+        raise HTTPException(400, "Plik nie zawiera żadnych wyników do zaimportowania.")
+
+    target = str(scan_meta.get("target") or file.filename or "zaimportowany skan")[:500]
+    now = time.time()
+    with db.conn() as c:
+        sid = c.execute(
+            "INSERT INTO scans(target,target_hash,opts,status,stage,score,hosts_total,hosts_done,"
+            "created,finished,log) VALUES(?,?,?,?,?,?,?,?,?,?,?)",
+            (target, str(scan_meta.get("target_hash") or ""), "{}", "done", "zaimportowany",
+             int(scan_meta.get("score") or 0), len(assets), len(assets), now, now, crypto.enc(""))).lastrowid
+        c.execute("INSERT OR IGNORE INTO scan_targets(scan_id,target) VALUES(?,?)", (sid, target))
+        for a in assets:
+            c.execute("INSERT OR REPLACE INTO assets(scan_id,id,kind,value,data) VALUES(?,?,?,?,?)",
+                      (sid, a["id"], a["kind"], a["value"], crypto.enc(json.dumps(a.get("data") or {}))))
+        for e in edges:
+            c.execute("INSERT OR IGNORE INTO edges VALUES(?,?,?)", (sid, e["src"], e["dst"]))
+        n = 0
+        for f in findings:
+            sev = f.get("severity") or "info"
+            if sev not in SEV_ORDER:
+                sev = "info"
+            asset = str(f.get("asset") or f"scan:{sid}")
+            title = str(f.get("title") or "?")[:200]
+            if not asset.strip() or not title.strip("?"):
+                continue
+            c.execute("INSERT INTO findings VALUES(?,?,?,?,?,?,?)",
+                      (sid, asset, sev, title, str(f.get("source") or "import"),
+                       crypto.enc(str(f.get("detail") or "")[:1000]), str(f.get("fix") or "")))
+            n += 1
+        if not assets:
+            c.execute("UPDATE scans SET score=? WHERE id=?",
+                      (scanner.risk_score([f.get("severity", "info") for f in findings]), sid))
+    return {"id": sid, "assets": len(assets), "findings": n}
+
+
 @app.get("/api/scans")
 def list_scans(user: dict = Depends(auth.require("read"))):
     with db.conn() as c:
