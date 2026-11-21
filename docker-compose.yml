@@ -9,7 +9,7 @@ services:
   asi:
     build: .
     image: attack-surface-intelligence:latest
-    container_name: asi
+    container_name: ${ASI_CONTAINER_NAME:-asi}
     network_mode: host
     # ports:
     #   - "8000:8000"

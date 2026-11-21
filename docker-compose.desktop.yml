@@ -1,0 +1,10 @@
+# Nakładka dla Docker Desktop (Windows/Mac), gdzie network_mode: host nie daje dostępu do
+# sieci hosta. Zamiast edytować docker-compose.yml:
+#   docker compose -f docker-compose.yml -f docker-compose.desktop.yml up -d --build
+# Panel: http://localhost:8000. Skanowanie internetu działa normalnie (NAT maszyny Docker
+# Desktop); LAN hosta jest widoczny tylko częściowo.
+services:
+  asi:
+    network_mode: !reset null
+    ports:
+      - "${ASI_PUBLISH:-127.0.0.1:8000}:8000"

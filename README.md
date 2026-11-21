@@ -14,8 +14,17 @@ Jedna komenda, bez WSL/Kali/ręcznej instalacji `go install` - wszystkie narzęd
 
 `network_mode: host` w `docker-compose.yml` wymaga natywnego Dockera na Linuksie (jedyny
 sposób, żeby kontener widział realną sieć LAN do skanowania). Na Docker Desktop
-(Windows/Mac) usuń tę linię i odkomentuj `ports: ["8000:8000"]` - skanowanie będzie wtedy
-ograniczone do tego, co widoczne z wirtualnej maszyny Docker Desktop. Zmienne środowiskowe
+(Windows/Mac) użyj nakładki, która zamienia host network na port `127.0.0.1:8000`
+(inny adres/port: `ASI_PUBLISH=0.0.0.0:8000`):
+
+    docker compose -f docker-compose.yml -f docker-compose.desktop.yml up -d --build
+
+Skanowanie internetu działa wtedy normalnie, LAN hosta jest widoczny tylko częściowo.
+
+Test dymny obrazu (build, panel, logowanie, 6 narzędzi, healthcheck, opcjonalnie pełny skan):
+
+    bash scripts/docker_smoke_test.sh                  # bez skanu
+    bash scripts/docker_smoke_test.sh scanme.nmap.org  # + skan celu, na który masz zgodę Zmienne środowiskowe
 (sekcje niżej) ustaw przez plik `.env` obok `docker-compose.yml` albo `environment:` w pliku.
 
 ## Panel operacyjny

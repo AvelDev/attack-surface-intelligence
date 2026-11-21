@@ -30,13 +30,17 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 
 # Oficjalny obraz golang ustawia GOPATH=/go (nie ~/go jak w naszych środowiskach WSL) -
 # stąd go install ląduje w /go/bin, nie /root/go/bin.
-COPY --from=tools /go/bin/* /usr/local/bin/
+# Osobny katalog na początku PATH, NIE /usr/local/bin: pip (fastapi -> httpx) instaluje tam
+# pythonowy skrypt "httpx", który nadpisywał binarkę ProjectDiscovery i etap HTTP po cichu
+# przechodził na fallback.
+COPY --from=tools /go/bin/* /opt/pd/bin/
+ENV PATH=/opt/pd/bin:$PATH
 # Pozwala na szybszy SYN scan (naabu -s s) zamiast domyślnego, wolnego connect scan - w
 # praktyce i tak nadpisane przez cap_add w docker-compose.yml (kontener i tak chodzi jako
 # root), ale zostaje jako zabezpieczenie na wypadek uruchomienia obrazu inaczej (np. z
 # dodanym tylko NET_RAW dla non-root usera). Samo NET_RAW wystarcza do craftowania pakietów
 # SYN - NET_ADMIN (kontrola interfejsów sieciowych) nie jest do tego potrzebne.
-RUN setcap cap_net_raw=eip /usr/local/bin/naabu || true
+RUN setcap cap_net_raw=eip /opt/pd/bin/naabu || true
 
 WORKDIR /app
 COPY requirements.txt .
@@ -54,8 +58,13 @@ ENV ASI_HOST=0.0.0.0 \
 
 VOLUME ["/data"]
 EXPOSE 8000
-# Forma powłokowa (nie JSON-exec), żeby ASI_HOST/ASI_PORT z environment: w compose faktycznie
+# Bez curla w obrazie - sprawdzenie przez Pythona, który i tak jest. "/" nie wymaga sesji.
+HEALTHCHECK --interval=30s --timeout=5s --start-period=20s --retries=3 \
+  CMD python -c "import os,urllib.request; urllib.request.urlopen('http://127.0.0.1:%s/' % os.environ.get('ASI_PORT','8000'), timeout=4)" || exit 1
+# Przez sh -c, żeby ASI_HOST/ASI_PORT z environment: w compose faktycznie
 # się podstawiały - wcześniej CMD miał te wartości wbite na trwałe i zmienne nic nie zmieniały.
 # Domyślnie 0.0.0.0 jest świadome: to narzędzie demo ma być dostępne z innych maszyn w sieci
 # (jury na swoim laptopie) - kto chce ograniczyć do localhost, ustawia ASI_HOST=127.0.0.1.
-CMD uvicorn asi.main:app --host ${ASI_HOST} --port ${ASI_PORT}
+# "exec" podmienia powłokę na uvicorn (PID 1), żeby docker stop (SIGTERM) zamykał serwer od razu,
+# zamiast czekać 10 s na SIGKILL.
+CMD ["sh", "-c", "exec uvicorn asi.main:app --host ${ASI_HOST} --port ${ASI_PORT}"]
