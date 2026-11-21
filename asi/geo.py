@@ -4,8 +4,14 @@ oraz szybki lookup z pamięcią podręczną i fallbackiem bez zależności zewn�
 """
 import ipaddress
 import json
+import os
 import urllib.request
 from concurrent.futures import ThreadPoolExecutor
+
+# Domyślnie wyłączone: bez tego adresy publiczne ze skanu (czyli de facto cele/klienci
+# zaangażowania) trafiałyby do zewnętrznego ip-api.com w czystym HTTP - ujawnienie danych
+# stronie trzeciej. Włączenie jest świadomą decyzją admina, nie zachowaniem domyślnym.
+GEO_ONLINE_LOOKUP = os.environ.get("ASI_GEO_ONLINE_LOOKUP", "0") == "1"
 
 # Cache w pamięci podręcznej procesu
 _GEO_CACHE = {}
@@ -51,24 +57,27 @@ def locate_ip(ip_str):
         _GEO_CACHE[ip_clean] = res
         return res
 
-    # Szybka próba zapytania online (ip-api.com) z krótkim timeoutem 1.2s
-    try:
-        url = f"http://ip-api.com/json/{ip_clean}?fields=status,countryCode,city,lat,lon"
-        req = urllib.request.Request(url, headers={"User-Agent": "asi-agent"})
-        with urllib.request.urlopen(req, timeout=1.2) as r:
-            data = json.loads(r.read().decode())
-            if data.get("status") == "success":
-                res = {
-                    "lat": float(data.get("lat", 50.0)),
-                    "lon": float(data.get("lon", 19.9)),
-                    "country": data.get("countryCode", "EU"),
-                    "city": data.get("city", "Cloud"),
-                    "is_hq": False
-                }
-                _GEO_CACHE[ip_clean] = res
-                return res
-    except Exception:
-        pass
+    # Szybka próba zapytania online (ip-api.com) z krótkim timeoutem 1.2s - tylko gdy
+    # admin świadomie to włączył (ASI_GEO_ONLINE_LOOKUP=1); domyślnie wyłączone, bo wysyła
+    # publiczne IP ze skanu (czyli cele zaangażowania) do zewnętrznej usługi po zwykłym HTTP.
+    if GEO_ONLINE_LOOKUP:
+        try:
+            url = f"http://ip-api.com/json/{ip_clean}?fields=status,countryCode,city,lat,lon"
+            req = urllib.request.Request(url, headers={"User-Agent": "asi-agent"})
+            with urllib.request.urlopen(req, timeout=1.2) as r:
+                data = json.loads(r.read().decode())
+                if data.get("status") == "success":
+                    res = {
+                        "lat": float(data.get("lat", 50.0)),
+                        "lon": float(data.get("lon", 19.9)),
+                        "country": data.get("countryCode", "EU"),
+                        "city": data.get("city", "Cloud"),
+                        "is_hq": False
+                    }
+                    _GEO_CACHE[ip_clean] = res
+                    return res
+        except Exception:
+            pass
 
     # Deterministyczny fallback na wypadek braku internetu
     h = sum(ord(c) for c in ip_clean) % len(CLOUD_REGIONS)

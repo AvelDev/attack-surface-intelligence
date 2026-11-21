@@ -184,6 +184,12 @@ dekoduje encje HTML przed uruchomieniem JS, więc zakodowany `'` wraca do
 Skrypty z CDN (Three.js, OrbitControls, vis-network) mają `integrity`
 (SRI, liczone samodzielnie z pobranych plików, nie z cudzych deklaracji).
 
+Geolokalizacja IP dla Command Center (`asi/geo.py`) domyślnie **nie** pyta zewnętrznego
+ip-api.com - publiczne adresy ze skanu to de facto cele zaangażowania, więc wysyłanie ich
+do strony trzeciej po zwykłym HTTP jest ujawnieniem danych, nie czymś domyślnie
+bezpiecznym. Online lookup wymaga świadomego `ASI_GEO_ONLINE_LOOKUP=1`; domyślnie
+zostaje deterministyczny fallback bez połączenia na zewnątrz.
+
 ## 6. Bezpieczeństwo skanowania
 
 - Cel zawsze walidowany (`scanner.normalize_target`, `targets.expand`) -
