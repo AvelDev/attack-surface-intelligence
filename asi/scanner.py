@@ -21,11 +21,13 @@ import xml.etree.ElementTree as ET
 from concurrent.futures import ThreadPoolExecutor
 from urllib.parse import urlparse
 
-from . import db
+from . import db, gvm_scan
 
 os.environ["PATH"] = os.environ.get("PATH", "") + os.pathsep + os.path.expanduser("~/go/bin")
 
-SEM = threading.Semaphore(1)  # skany idą w kolejce, po jednym naraz
+JOB_SEM = threading.Semaphore(int(os.environ.get("ASI_MAX_WORKERS", "4")))  # ile skanów (jobów) naraz
+DEFAULT_RATE = int(os.environ.get("ASI_SCAN_RATE", "300"))  # pakiety/s dla naabu/nmap (per batch)
+BATCH_TARGET_S = 30  # adaptacyjny rozmiar paczki hostów dąży do tylu sekund na paczkę
 TOOLS = ["subfinder", "dnsx", "naabu", "nmap", "httpx", "nuclei"]
 SEV_W = {"critical": 40, "high": 20, "medium": 8, "low": 3, "info": 0}
 DOMAIN_RE = re.compile(r"^(?=.{1,253}$)([a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z]{2,63}$")
@@ -96,6 +98,8 @@ def tool_status():
             except Exception:
                 ok = False
         out[n] = {"installed": ok, "path": p if ok else None}
+    gs = gvm_scan.status()
+    out["openvas"] = {"installed": gs["reachable"], "path": f"{gvm_scan.HOST}:{gvm_scan.PORT}" if gs["configured"] else None}
     return out
 
 
@@ -103,8 +107,10 @@ class Ctx:
     def __init__(self, scan_id):
         self.id = scan_id
         with db.conn() as c:
-            row = c.execute("SELECT target, opts FROM scans WHERE id=?", (scan_id,)).fetchone()
-        self.target, self.opts = row["target"], json.loads(row["opts"])
+            row = c.execute("SELECT target, opts, created FROM scans WHERE id=?", (scan_id,)).fetchone()
+            self.targets = [r["target"] for r in
+                            c.execute("SELECT target FROM scan_targets WHERE scan_id=?", (scan_id,))]
+        self.target, self.opts, self.created = row["target"], json.loads(row["opts"]), row["created"]
         self._seen_f = set()
 
     def log(self, msg):
@@ -138,13 +144,21 @@ class Ctx:
             c.execute("INSERT INTO findings VALUES(?,?,?,?,?,?,?)",
                       (self.id, asset, sev, title, source, detail[:1000], fix))
 
+    def hosts_total(self, n):
+        with db.conn() as c:
+            c.execute("UPDATE scans SET hosts_total=? WHERE id=?", (n, self.id))
+
+    def hosts_progress(self, done):
+        with db.conn() as c:
+            c.execute("UPDATE scans SET hosts_done=? WHERE id=?", (done, self.id))
+
     def finish(self, status):
         with db.conn() as c:
             sev = [r["severity"] for r in c.execute(
                 "SELECT severity FROM findings WHERE scan_id=?", (self.id,))]
-            c.execute("UPDATE scans SET status=?, stage=?, score=?, finished=? WHERE id=?",
+            c.execute("UPDATE scans SET status=?, stage=?, score=?, finished=?, duration_s=? WHERE id=?",
                       (status, "zakończony" if status == "done" else "błąd",
-                       risk_score(sev), time.time(), self.id))
+                       risk_score(sev), time.time(), time.time() - self.created, self.id))
 
 
 def risk_score(severities):
@@ -243,12 +257,13 @@ def _tcp_open(ip, port, timeout=1.5):
         return False
 
 
-def scan_ports(ctx, ips, tools):
+def scan_ports(ctx, ips, tools, rate=None):
+    rate = rate or DEFAULT_RATE
     result = {ip: [] for ip in ips}
     if not ips:
         return result
     if tools["naabu"]["installed"]:
-        out = run_cmd(ctx, ["naabu", "-list", "/dev/stdin", "-top-ports", "100", "-rate", "300",
+        out = run_cmd(ctx, ["naabu", "-list", "/dev/stdin", "-top-ports", "100", "-rate", str(rate),
                             "-s", "c", "-silent", "-json"], 600, stdin="\n".join(ips))
         for j in jsonl(out):
             ip, port = j.get("ip") or j.get("host"), j.get("port")
@@ -256,7 +271,7 @@ def scan_ports(ctx, ips, tools):
                 result[ip].append({"port": int(port), "service": SERVICE.get(int(port), ""), "version": ""})
     elif tools["nmap"]["installed"]:
         out = run_cmd(ctx, ["nmap", "-Pn", "-sT", "--top-ports", "100", "-sV", "--version-light",
-                            "-T3", "--open", "-oX", "-"] + list(ips), 900)
+                            "-T3", "--open", "--max-rate", str(rate), "-oX", "-"] + list(ips), 900)
         try:
             for h in ET.fromstring(out).iter("host"):
                 a = h.find("address[@addrtype='ipv4']")
@@ -344,6 +359,29 @@ def verify_ports(ctx, result):
     return out
 
 
+def batched_port_scan(ctx, ips, tools, rate=None, start_batch=200):
+    """Dzieli listę IP na paczki, adaptując rozmiar do zmierzonej przepustowości tak, by każda
+    paczka trwała ~BATCH_TARGET_S - realizuje "podział na optymalne podgrupy" i daje postęp/czas
+    trwania widoczne w trakcie (duży pojedynczy skan naabu/nmap nie dałby żadnego postępu)."""
+    result = {}
+    if not ips:
+        return result
+    batch_size, done = max(1, start_batch), 0
+    i = 0
+    while i < len(ips):
+        chunk = ips[i:i + batch_size]
+        t0 = time.time()
+        result.update(scan_ports(ctx, chunk, tools, rate=rate))
+        elapsed = time.time() - t0
+        i += len(chunk)
+        done += len(chunk)
+        ctx.hosts_progress(done)
+        ctx.log(f"Paczka {len(chunk)} hostów w {elapsed:.1f}s ({done}/{len(ips)})")
+        if elapsed > 0.5:
+            batch_size = max(50, min(2000, int(len(chunk) / elapsed * BATCH_TARGET_S)))
+    return result
+
+
 def web_scheme(p):
     port, svc = p["port"], p.get("service", "")
     if "https" in svc or "ssl/http" in svc or port in (443, 8443, 9443):
@@ -424,42 +462,69 @@ SEC_HEADERS = [("content-security-policy", "Brak nagłówka Content-Security-Pol
 
 # ---------- główny pipeline ----------
 def pipeline(ctx):
-    t, tools = ctx.target, tool_status()
+    targets, tools = ctx.targets, tool_status()
     ctx.log("Narzędzia: " + ", ".join(f"{k}={'OK' if v['installed'] else 'brak (fallback)'}"
                                       for k, v in tools.items()))
-    ip_target = is_ip(t)
-    root = ctx.asset("ip" if ip_target else "domain", t)
-    ip_of = {t: [t]} if ip_target else {}
+    ctx.log(f"Cele: {len(targets)}")
+    domains = [t for t in targets if not is_ip(t)]
+    ip_targets = [t for t in targets if is_ip(t)]
 
-    if not ip_target:
-        ctx.stage("Enumeracja subdomen")
-        names = sorted(enum_subdomains(ctx, t, tools) | {t})
+    ip_of = {}  # host (domena/subdomena/IP-cel) -> [ip,...]
+    root_id = {}  # host -> id assetu reprezentującego ten cel wejściowy
+    for t in ip_targets:
+        root_id[t] = ctx.asset("ip", t)
+        ip_of[t] = [t]
+
+    if domains:
+        ctx.stage(f"Enumeracja subdomen ({len(domains)} domen)")
+        name_to_domain = {}
+        for d in domains:
+            root_id[d] = ctx.asset("domain", d)
+            for n in enum_subdomains(ctx, d, tools) | {d}:
+                name_to_domain.setdefault(n, d)
+        names = sorted(name_to_domain)
         ctx.log(f"Znaleziono nazw: {len(names)}")
         ctx.stage("Rozwiązywanie DNS")
-        ip_of, cnames = resolve(ctx, names, tools)
+        resolved, cnames = resolve(ctx, names, tools)
         for n in names:
-            nid = root if n == t else ctx.asset("subdomain", n, {"cname": cnames.get(n, [])})
-            if n != t:
-                ctx.edge(root, nid)
+            d = name_to_domain[n]
+            nid = root_id[d] if n == d else ctx.asset("subdomain", n, {"cname": cnames.get(n, [])})
+            if n != d:
+                ctx.edge(root_id[d], nid)
             tk = [c for c in cnames.get(n, []) if c.endswith(TAKEOVER_SUFFIXES)]
-            if tk and not ip_of.get(n):
+            if tk and not resolved.get(n):
                 ctx.finding(nid, "high", "Możliwy subdomain takeover (CNAME do usługi zewnętrznej bez celu)",
                             "builtin", f"{n} -> {tk[0]}",
                             "Usuń wpis CNAME albo odzyskaj zasób u dostawcy; sprawdź szablony nuclei 'takeovers'.")
-            elif not ip_of.get(n) and n != t:
+            elif not resolved.get(n) and n != d:
                 ctx.finding(nid, "low", "Subdomena nie rozwiązuje się w DNS (możliwy dangling record)",
                             "builtin", n, "Usuń nieużywany wpis DNS lub zweryfikuj podatność na subdomain takeover.")
-            for ip in ip_of.get(n, []):
+            ip_of[n] = resolved.get(n, [])
+            for ip in ip_of[n]:
                 ctx.edge(nid, ctx.asset("ip", ip))
 
-    ips = sorted({ip for v in ip_of.values() for ip in v})
-    if not ALLOW_PRIVATE and not ip_target:
-        priv = [i for i in ips if not ipaddress.ip_address(i).is_global]
+    # IP podane wprost (cel lub CIDR) nie podlegają filtrowi prywatności - to świadomy wybór
+    # użytkownika (np. skan wewnętrznej sieci 10.0.0.0/8). Filtr dotyczy tylko adresów
+    # odkrytych przez DNS z domen - tam nieoczekiwana prywatna odpowiedź bywa podejrzana.
+    direct_ips = {t for t in ip_targets}
+    resolved_ips = {ip for host, v in ip_of.items() if host not in direct_ips for ip in v}
+    if not ALLOW_PRIVATE:
+        priv = [i for i in resolved_ips if not ipaddress.ip_address(i).is_global]
         if priv:
-            ctx.log(f"Pomijam adresy nieglobalne (ASI_ALLOW_PRIVATE=1 aby skanować): {priv}")
-            ips = [i for i in ips if i not in priv]
+            ctx.log(f"Pomijam adresy nieglobalne z DNS (ASI_ALLOW_PRIVATE=1 aby skanować): {priv}")
+            resolved_ips -= set(priv)
+    ips = sorted(direct_ips | resolved_ips)
+    ctx.hosts_total(len(ips))
+    if ctx.opts.get("gvm"):
+        if gvm_scan.configured():
+            ctx.log(f"OpenVAS: zlecam głęboki skan w tle dla {len(ips)} adresów "
+                     "(wolny, nie blokuje kolejki ani wyniku tego skanu)")
+            threading.Thread(target=gvm_scan.run, args=(ctx.id, ips, ctx.log), daemon=True).start()
+        else:
+            ctx.log("OpenVAS: pomijam - nieskonfigurowany (ASI_GVM_HOST / ASI_GVM_PASSWORD)")
+
     ctx.stage(f"Skan portów ({len(ips)} adresów IP)")
-    ports = scan_ports(ctx, ips, tools)
+    ports = batched_port_scan(ctx, ips, tools, rate=ctx.opts.get("rate_limit"))
     port_id = {}
     for ip, plist in ports.items():
         for p in plist:
@@ -490,7 +555,7 @@ def pipeline(ctx):
         host, ip, port = meta
         hdr = w.pop("headers", {})
         wid = ctx.asset("web", url, w)
-        ctx.edge(port_id.get((ip, port), root if host == t else f"subdomain:{host}"), wid)
+        ctx.edge(port_id.get((ip, port), root_id.get(host, f"subdomain:{host}")), wid)
         st = w["status"]
         if url.startswith("http://") and 200 <= st < 300:
             ctx.finding(wid, "medium", "Usługa dostępna po nieszyfrowanym HTTP bez przekierowania",
@@ -530,7 +595,7 @@ def pipeline(ctx):
             info = j.get("info", {})
             base = urlparse(at)
             wid = f"web:{base.scheme}://{base.netloc}"
-            ctx.finding(wid if wid[4:] in {w['url'].rstrip('/') for w in webs} else root,
+            ctx.finding(wid if wid[4:] in {w['url'].rstrip('/') for w in webs} else f"scan:{ctx.id}",
                         info.get("severity", "info"), info.get("name", j.get("template-id", "?")),
                         "nuclei", f"{j.get('template-id')} @ {at}", "; ".join(info.get("remediation", "").split("\n"))[:300]
                         or "Zob. referencje szablonu nuclei.")
@@ -540,7 +605,7 @@ def pipeline(ctx):
 
 
 def run_scan(scan_id):
-    with SEM:
+    with JOB_SEM:
         ctx = Ctx(scan_id)
         try:
             with db.conn() as c:

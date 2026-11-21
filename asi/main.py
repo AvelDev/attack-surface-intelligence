@@ -1,5 +1,6 @@
 """API + serwowanie UI. Start: uvicorn asi.main:app --host 127.0.0.1 --port 8000"""
 import csv
+import hashlib
 import html
 import io
 import json
@@ -7,11 +8,12 @@ import os
 import threading
 import time
 
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, File, Form, HTTPException, UploadFile
 from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, Response
 from pydantic import BaseModel
 
 from . import db, scanner
+from . import targets as targets_mod
 
 app = FastAPI(title="Attack Surface Intelligence PoC")
 STATIC = os.path.join(db.ROOT, "static")
@@ -24,9 +26,12 @@ def _startup():
 
 
 class ScanReq(BaseModel):
-    target: str
+    target: str | None = None
+    targets: list[str] | None = None
     authorized: bool = False
     nuclei: bool = False
+    gvm: bool = False
+    rate_limit: int | None = None
 
 
 @app.get("/")
@@ -39,28 +44,81 @@ def tools():
     return scanner.tool_status()
 
 
+def _start_scan(raw_items, opts):
+    resolved, errors = targets_mod.expand(raw_items)
+    if not resolved:
+        detail = "; ".join(f"{r}: {e}" for r, e in errors[:5]) or "Brak celów."
+        raise HTTPException(400, f"Brak prawidłowych celów. {detail}")
+    display = targets_mod.display_name(raw_items, resolved)
+    thash = hashlib.sha256("\n".join(sorted(resolved)).encode()).hexdigest()
+    with db.conn() as c:
+        sid = c.execute("INSERT INTO scans(target,target_hash,opts,created,hosts_total) VALUES(?,?,?,?,?)",
+                        (display, thash, json.dumps(opts), time.time(), len(resolved))).lastrowid
+        c.executemany("INSERT OR IGNORE INTO scan_targets(scan_id,target) VALUES(?,?)",
+                      [(sid, t) for t in resolved])
+    threading.Thread(target=scanner.run_scan, args=(sid,), daemon=True).start()
+    return sid, errors
+
+
+def _opts_from(nuclei, gvm, rate_limit):
+    opts = {"nuclei": bool(nuclei), "gvm": bool(gvm)}
+    if rate_limit:
+        opts["rate_limit"] = int(rate_limit)
+    return opts
+
+
 @app.post("/api/scans")
 def create_scan(req: ScanReq):
     if not req.authorized:
-        raise HTTPException(400, "Potwierdź, że masz zgodę na skanowanie tego celu.")
-    try:
-        target = scanner.normalize_target(req.target)
-    except ValueError as e:
-        raise HTTPException(400, str(e))
-    with db.conn() as c:
-        sid = c.execute("INSERT INTO scans(target,opts,created) VALUES(?,?,?)",
-                        (target, json.dumps({"nuclei": req.nuclei}), time.time())).lastrowid
-    threading.Thread(target=scanner.run_scan, args=(sid,), daemon=True).start()
-    return {"id": sid}
+        raise HTTPException(400, "Potwierdź, że masz zgodę na skanowanie tego celu/celów.")
+    raw_items = req.targets if req.targets else ([req.target] if req.target else [])
+    if not raw_items:
+        raise HTTPException(400, "Podaj cel (target) lub listę celów (targets).")
+    sid, errors = _start_scan(raw_items, _opts_from(req.nuclei, req.gvm, req.rate_limit))
+    resp = {"id": sid}
+    if errors:
+        resp["warnings"] = [f"{r}: {e}" for r, e in errors[:20]]
+    return resp
+
+
+@app.post("/api/scans/import-targets")
+async def import_targets(file: UploadFile = File(...), authorized: bool = Form(False),
+                         nuclei: bool = Form(False), gvm: bool = Form(False),
+                         rate_limit: int | None = Form(None)):
+    if not authorized:
+        raise HTTPException(400, "Potwierdź, że masz zgodę na skanowanie tych celów.")
+    text = (await file.read()).decode("utf-8", "ignore")
+    name = (file.filename or "").lower()
+    if name.endswith(".json"):
+        raw_items = targets_mod.parse_json(text)
+    elif name.endswith(".csv"):
+        raw_items = targets_mod.parse_csv(text)
+    else:
+        raw_items = targets_mod.parse_text(text)
+    if not raw_items:
+        raise HTTPException(400, "Plik nie zawiera żadnych celów.")
+    sid, errors = _start_scan(raw_items, _opts_from(nuclei, gvm, rate_limit))
+    resp = {"id": sid}
+    if errors:
+        resp["warnings"] = [f"{r}: {e}" for r, e in errors[:20]]
+    return resp
 
 
 @app.get("/api/scans")
 def list_scans():
     with db.conn() as c:
         rows = c.execute("SELECT s.id,s.target,s.status,s.stage,s.score,s.created,s.finished,"
+                         "s.hosts_total,s.hosts_done,s.duration_s,"
                          "(SELECT COUNT(*) FROM findings f WHERE f.scan_id=s.id) AS findings "
                          "FROM scans s ORDER BY s.id DESC LIMIT 50").fetchall()
     return [dict(r) for r in rows]
+
+
+@app.get("/api/scans/{sid}/targets")
+def scan_targets(sid: int):
+    with db.conn() as c:
+        rows = c.execute("SELECT target FROM scan_targets WHERE scan_id=? ORDER BY target", (sid,)).fetchall()
+    return [r["target"] for r in rows]
 
 
 def _load(sid):
@@ -76,10 +134,12 @@ def _load(sid):
     return dict(s), assets, edges, findings
 
 
-def _diff(sid, target, assets, findings):
+def _diff(sid, target_hash, assets, findings):
+    if not target_hash:
+        return None
     with db.conn() as c:
-        prev = c.execute("SELECT id FROM scans WHERE target=? AND status='done' AND id<? "
-                         "ORDER BY id DESC LIMIT 1", (target, sid)).fetchone()
+        prev = c.execute("SELECT id FROM scans WHERE target_hash=? AND status='done' AND id<? "
+                         "ORDER BY id DESC LIMIT 1", (target_hash, sid)).fetchone()
     if not prev:
         return None
     _, passets, _, pfind = _load(prev["id"])
@@ -101,7 +161,7 @@ def get_scan(sid: int):
     live_score = scanner.risk_score([f["severity"] for f in findings])
     s["score"] = s["score"] if s["status"] == "done" else live_score
     return {"scan": s, "assets": assets, "edges": edges, "findings": findings, "counts": counts,
-            "diff": _diff(sid, s["target"], assets, findings) if s["status"] == "done" else None}
+            "diff": _diff(sid, s["target_hash"], assets, findings) if s["status"] == "done" else None}
 
 
 @app.delete("/api/scans/{sid}")

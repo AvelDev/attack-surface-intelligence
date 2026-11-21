@@ -16,7 +16,10 @@ header h1{font-size:17px;margin:0}header span{color:var(--mut)}
 @media(max-width:900px){.layout{grid-template-columns:1fr}}
 .card{background:var(--panel);border:1px solid var(--line);border-radius:8px;padding:14px;margin-bottom:16px}
 .card h2{font-size:13px;text-transform:uppercase;letter-spacing:.05em;color:var(--mut);margin:0 0 10px}
-input[type=text]{width:100%;padding:8px;border-radius:6px;border:1px solid var(--line);background:var(--bg);color:var(--fg)}
+input[type=text],input[type=number],textarea{width:100%;padding:8px;border-radius:6px;border:1px solid var(--line);background:var(--bg);color:var(--fg);font:inherit}
+textarea{min-height:70px;resize:vertical}
+.progress{height:6px;border-radius:3px;background:var(--line);overflow:hidden;margin-top:4px}
+.progress b{display:block;height:100%;background:var(--acc)}
 label{display:flex;gap:8px;align-items:flex-start;margin:8px 0;color:var(--mut);font-size:13px}
 button{background:var(--acc);color:#fff;border:0;border-radius:6px;padding:8px 14px;cursor:pointer;font-weight:600}
 button:disabled{opacity:.5}
@@ -47,11 +50,16 @@ a{color:var(--acc)}
   <aside>
     <div class="card">
       <h2>Nowy skan</h2>
-      <input id="target" type="text" placeholder="example.com lub 203.0.113.5" autocomplete="off">
-      <label><input type="checkbox" id="auth"> Potwierdzam, że mam zgodę właściciela na skanowanie tego celu.</label>
+      <textarea id="target" placeholder="example.com, 203.0.113.5, 198.51.100.0/24 - jeden na linię lub po przecinku" autocomplete="off"></textarea>
+      <input id="rate" type="number" min="10" placeholder="limit pakietów/s (domyślnie 300)" style="margin-top:6px">
+      <label><input type="checkbox" id="auth"> Potwierdzam, że mam zgodę właściciela na skanowanie tych celów.</label>
       <label><input type="checkbox" id="nuclei"> Skan podatności (nuclei) - wolniejszy, bardziej inwazyjny</label>
+      <label><input type="checkbox" id="gvm"> Głęboki skan OpenVAS/GVM - bardzo wolny (minuty-godziny), w tle</label>
       <button id="go">Uruchom skan</button>
       <div class="err" id="err"></div>
+      <h2 style="margin-top:14px">Import pliku (CSV/JSON)</h2>
+      <input id="file" type="file" accept=".csv,.json,.txt">
+      <button id="goFile" style="margin-top:6px">Importuj i skanuj</button>
     </div>
     <div class="card"><h2>Skany</h2><div id="scans"></div></div>
     <div class="card"><h2>Narzędzia</h2><div id="tools"></div></div>
@@ -83,12 +91,20 @@ async function loadTools() {
   if (t.nuclei.installed) $('#nuclei').checked = true;
 }
 
+function progressBar(s) {
+  if (!['queued', 'running'].includes(s.status) || !s.hosts_total) return '';
+  const pct = Math.round(100 * (s.hosts_done || 0) / s.hosts_total);
+  return `<div class="progress" title="${s.hosts_done || 0}/${s.hosts_total} hostów"><b style="width:${pct}%"></b></div>`;
+}
+
 async function loadScans() {
   const list = await api('/api/scans');
   $('#scans').innerHTML = list.map(s => `
     <div class="scan ${s.id === current ? 'sel' : ''}" data-id="${s.id}">
       <b>${esc(s.target)}</b> <span class="pill s-${s.score >= 60 ? 'critical' : s.score >= 30 ? 'medium' : 'low'}">${s.score}</span>
-      <small>#${s.id} · ${esc(s.status)} · ${esc(s.stage)} · ustaleń: ${s.findings}</small>
+      <small>#${s.id} · ${esc(s.status)} · ${esc(s.stage)} · ustaleń: ${s.findings}
+        ${s.duration_s ? ' · ' + Math.round(s.duration_s) + 's' : ''}</small>
+      ${progressBar(s)}
     </div>`).join('') || '<small>Brak skanów</small>';
   document.querySelectorAll('.scan').forEach(el => el.onclick = () => select(+el.dataset.id));
 }
@@ -109,7 +125,9 @@ function render(d) {
   d.assets.forEach(a => kinds[a.kind] = (kinds[a.kind] || 0) + 1);
   const running = ['queued', 'running'].includes(s.status);
   $('#main').innerHTML = `
-    <div class="card"><h2>Skan #${s.id} · ${esc(s.target)} · ${esc(s.status)}${running ? ' · ' + esc(s.stage) : ''}</h2>
+    <div class="card"><h2>Skan #${s.id} · ${esc(s.target)} · ${esc(s.status)}${running ? ' · ' + esc(s.stage) : ''}
+        ${s.hosts_total ? ` · ${s.hosts_done}/${s.hosts_total} hostów` : ''}${s.duration_s ? ` · ${Math.round(s.duration_s)}s` : ''}</h2>
+      ${progressBar(s)}
       <div class="kpis">
         <div class="kpi"><b>${s.score}/100</b><span>wynik ryzyka</span></div>
         ${SEVS.slice(0, 4).map(k => `<div class="kpi"><b style="color:var(--${k})">${d.counts[k] || 0}</b><span>${PL[k]}</span></div>`).join('')}
@@ -127,8 +145,9 @@ function render(d) {
   drawGraph(d);
   if ($('#rescan')) {
     $('#rescan').onclick = async e => { e.preventDefault();
+      const prevTargets = await api('/api/scans/' + s.id + '/targets');
       const r = await api('/api/scans', {method: 'POST', headers: {'Content-Type': 'application/json'},
-        body: JSON.stringify({target: s.target, authorized: true, nuclei: $('#nuclei').checked})}); select(r.id); };
+        body: JSON.stringify({targets: prevTargets, authorized: true, nuclei: $('#nuclei').checked, gvm: $('#gvm').checked})}); select(r.id); };
     $('#del').onclick = async e => { e.preventDefault();
       if (!confirm('Usunąć skan #' + s.id + '?')) return;
       await api('/api/scans/' + s.id, {method: 'DELETE'}); current = null;
@@ -180,12 +199,40 @@ function drawGraph(d) {
     {physics: {stabilization: {iterations: 150}, barnesHut: {springLength: 90}}, edges: {color: '#667', smooth: false}, interaction: {hover: true}});
 }
 
+function splitTargets(text) {
+  return text.split(/[\n,]/).map(x => x.trim()).filter(Boolean);
+}
+
+function showWarnings(r) {
+  if (r.warnings && r.warnings.length) {
+    $('#err').style.color = 'var(--medium)';
+    $('#err').textContent = 'Pominięto (' + r.warnings.length + '): ' + r.warnings.slice(0, 5).join('; ');
+  }
+}
+
 $('#go').onclick = async () => {
-  $('#err').textContent = '';
+  $('#err').textContent = ''; $('#err').style.color = '';
   try {
     const r = await api('/api/scans', {method: 'POST', headers: {'Content-Type': 'application/json'},
-      body: JSON.stringify({target: $('#target').value, authorized: $('#auth').checked, nuclei: $('#nuclei').checked})});
-    select(r.id);
+      body: JSON.stringify({targets: splitTargets($('#target').value), authorized: $('#auth').checked,
+        nuclei: $('#nuclei').checked, gvm: $('#gvm').checked, rate_limit: $('#rate').value ? +$('#rate').value : null})});
+    showWarnings(r); select(r.id);
+  } catch (e) { $('#err').textContent = e.message; }
+};
+
+$('#goFile').onclick = async () => {
+  $('#err').textContent = ''; $('#err').style.color = '';
+  try {
+    const f = $('#file').files[0];
+    if (!f) throw new Error('Wybierz plik CSV lub JSON.');
+    const fd = new FormData();
+    fd.append('file', f);
+    fd.append('authorized', $('#auth').checked);
+    fd.append('nuclei', $('#nuclei').checked);
+    fd.append('gvm', $('#gvm').checked);
+    if ($('#rate').value) fd.append('rate_limit', $('#rate').value);
+    const r = await api('/api/scans/import-targets', {method: 'POST', body: fd});
+    showWarnings(r); select(r.id);
   } catch (e) { $('#err').textContent = e.message; }
 };
 loadTools(); loadScans();

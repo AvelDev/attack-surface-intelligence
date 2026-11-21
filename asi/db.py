@@ -10,13 +10,22 @@ SCHEMA = """
 CREATE TABLE IF NOT EXISTS scans(
   id INTEGER PRIMARY KEY AUTOINCREMENT,
   target TEXT NOT NULL,
+  target_hash TEXT NOT NULL DEFAULT '',
   opts TEXT NOT NULL DEFAULT '{}',
   status TEXT NOT NULL DEFAULT 'queued',
   stage TEXT NOT NULL DEFAULT '',
   score INTEGER NOT NULL DEFAULT 0,
+  hosts_total INTEGER NOT NULL DEFAULT 0,
+  hosts_done INTEGER NOT NULL DEFAULT 0,
+  duration_s REAL,
   created REAL NOT NULL,
   finished REAL,
   log TEXT NOT NULL DEFAULT ''
+);
+CREATE INDEX IF NOT EXISTS idx_scans_target_hash ON scans(target_hash);
+CREATE TABLE IF NOT EXISTS scan_targets(
+  scan_id INTEGER NOT NULL, target TEXT NOT NULL,
+  PRIMARY KEY(scan_id, target)
 );
 CREATE TABLE IF NOT EXISTS assets(
   scan_id INTEGER NOT NULL, id TEXT NOT NULL, kind TEXT NOT NULL,
@@ -49,6 +58,7 @@ def conn():
 def init():
     os.makedirs(os.path.dirname(DB_PATH), exist_ok=True)
     with conn() as c:
+        c.execute("PRAGMA journal_mode=WAL")
         c.executescript(SCHEMA)
         c.execute("UPDATE scans SET status='failed', stage='przerwany (restart)' "
                   "WHERE status IN ('queued','running')")

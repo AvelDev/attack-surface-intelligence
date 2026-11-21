@@ -1,2 +1,4 @@
 fastapi>=0.115
 uvicorn[standard]>=0.30
+python-multipart>=0.0.9  # wymagane przez FastAPI dla Form()/UploadFile (import CSV/JSON)
+python-gvm>=25.0  # opcjonalne - integracja z OpenVAS/Greenbone (zob. ASI_GVM_* w README)
