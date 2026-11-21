@@ -1,98 +1,145 @@
-# Scenariusz prezentacji: Attack Surface Intelligence (max 2 min)
+# Scenariusz prezentacji: Attack Surface Intelligence
 
-Prezentacja na komputerze, na żywo, realny skan celu `scanme.nmap.org` w trybie lekkim (przyspieszonym).
+Scenariusz modułowy - bloki po 15-25 s, które składa się w dowolną długość demo
+(na sztywno nieznaną na etapie pisania tego dokumentu). Każdy blok ma zaznaczony
+czas, stan ekranu i tekst do powiedzenia, więc da się przyciąć do 2 minut (same
+bloki oznaczone **[rdzeń]**) albo rozciągnąć do 5+ minut (wszystkie bloki).
 
-`scanme.nmap.org` to oficjalny cel testowy projektu Nmap. Jego skanowanie jest dozwolone.
-
----
-
-## 1. Przygotowanie (przed prezentacją)
-
-1. Uruchom aplikację: `bash run.sh`, adres `http://127.0.0.1:8000`.
-2. Przeglądarka na pełnym ekranie, powiększenie ok. 125%, jedna karta, bez zakładek i powiadomień.
-3. Wykonaj **skan próbny** `scanme.nmap.org` tuż przed pokazem. Dzięki temu na żywo pokażesz sekcję „Zmiany od poprzedniego sprawdzenia". Bez wcześniejszego skanu ta sekcja jest pusta.
-4. Sprawdź połączenie z internetem (subdomeny, Shodan, CISA KEV i NVD z niego korzystają). W Ustawieniach zobacz, które narzędzia są zainstalowane, ale **nie pokazuj widza okna z kluczami API**.
-5. Ustawienia skanu dla przyspieszenia:
-   - **nie** zaznaczaj „Tryb dokładny" (crawling, amass, testssl, whatweb `-a 3`),
-   - **nie** zaznaczaj nuclei,
-   - **nie** zaznaczaj „Sprawdzaj automatycznie".
-6. Plan B: gotowy skan z historii (otwierany z ekranu startowego), gdyby sieć lub skan zawiodły.
+**Ważne:** ten dokument opisuje wyłącznie funkcje, które faktycznie działają w
+kodzie na dzień pisania (branch `babunia`). Poprzednia wersja tego scenariusza
+wspominała integrację z Shodan/CISA KEV/NVD oraz harmonogram cyklicznych skanów
+z powiadomieniami webhook - **żadne z tych dwóch nie istnieje w kodzie**, więc
+zostały usunięte stąd, żeby nikt nie obiecał jury czegoś, czego nie da się pokazać.
 
 ---
 
-## 2. Przebieg z tekstem (do wypowiedzenia)
+## 0. Kontekst techniczny demo
 
-### 0:00–0:15 Problem i idea
-
-**Na ekranie:** ekran startowy, nagłówek „Sprawdź, czy strona Twojej instytucji jest bezpieczna".
-
-**Co robisz:** pokazujesz nagłówek i formularz. Niczego jeszcze nie klikasz.
-
-**Tekst:**
-> „Każda instytucja ma stronę internetową, ale rzadko wie, co z niej widać z zewnątrz: jakie usługi, otwarte porty, subdomeny i przestarzałe oprogramowanie. To właśnie widzi atakujący. Ta aplikacja robi to samo, czyli mapuje powierzchnię ataku. Jest przeznaczona dla osoby nietechnicznej, więc wynik dostaje po polsku, w jednym zdaniu, razem z tym, co naprawić."
-
-### 0:15–0:30 Start skanu
-
-**Na ekranie:** formularz.
-
-**Co robisz:**
-1. Wpisujesz `scanme.nmap.org` w pole adresu.
-2. Zaznaczasz pole oświadczenia o zgodzie właściciela.
-3. Klikasz **Sprawdź stronę**.
-
-**Tekst:**
-> „Wpisuję adres. Aplikacja nie ruszy, dopóki nie potwierdzę, że strona należy do mnie albo mam zgodę właściciela, bo skanowanie cudzych systemów może być niezgodne z prawem. Używam scanme.nmap.org, czyli celu udostępnionego do testów przez twórców Nmapa. Tryb lekki, pasywny: bez crawlingu i bez agresywnych testów."
-
-### 0:30–1:05 Skan w toku (najdłuższy fragment)
-
-**Na ekranie:** widok postępu z etapami (odświeżanie co 2 s).
-
-**Co robisz:** nie klikasz. Wskazujesz kursorem kolejne etapy w miarę ich pojawiania się.
-
-**Tekst:**
-> „Pod spodem działa łańcuch narzędzi znanych z Kali: subfinder szuka subdomen, dnsx rozwiązuje DNS, naabu i nmap skanują porty, httpx bada usługi WWW. Do tego dochodzą kontrole tylko do odczytu: ukryte pliki, takie jak `.git` czy `.env`, konfiguracja SPF i DMARC, wersje TLS oraz plik security.txt. Całość uzupełnia wywiad zewnętrzny: Shodan, lista CISA KEV z podatnościami wykorzystywanymi w atakach i baza NVD. Jeśli któregoś narzędzia brakuje, zastępuje je fallback w Pythonie, więc aplikacja działa na każdej maszynie."
-
-**Uwaga:** jeśli skan trwa dłużej niż ok. 35 s, mów dalej o architekturze (powyższy tekst można rozciągnąć o zdanie o allowliście celów i walidacji wejścia: komendy działają bez powłoki, więc nie ma command injection). Jeśli po ok. 50 s nadal trwa, przełącz się na skan próbny z historii.
-
-### 1:05–1:25 Wynik
-
-**Na ekranie:** ocena 0–100, podsumowanie w jednym zdaniu, lista „Co zrobić najpierw".
-
-**Co robisz:** przewijasz do listy uwag i rozwijasz jedną pozycję (np. otwarty port lub stara wersja usługi), żeby pokazać pole „Co zrobić".
-
-**Tekst:**
-> „Skan skończony. Dostajemy ocenę ryzyka od 0 do 100 i jedno zdanie podsumowania. Uwagi są ułożone od najważniejszej, a waga jest zawsze podana tekstem i kształtem, nie tylko kolorem. Przy każdej jest źródło ustalenia i zalecenie »Co zrobić«, które można przekazać informatykowi bez zmian. Na scanme zobaczymy otwarte porty i starsze oprogramowanie, i to jest celowe, bo ten host służy do testów."
-
-### 1:25–1:45 Zmiany w czasie
-
-**Na ekranie:** sekcja „Zmiany" oraz trend oceny.
-
-**Co robisz:** przewijasz do zmian i pokazujesz wykres trendu. Opcjonalnie wskazujesz przycisk **Sprawdź ponownie**.
-
-**Tekst:**
-> „Najważniejsza jest zmiana w czasie. Aplikacja porównuje wynik z poprzednim skanem tego samego celu i pokazuje nowe zasoby, nowe pilne problemy oraz pogorszenie oceny. Skan można ustawić jako cykliczny, codziennie, co tydzień lub co miesiąc, a o istotnej zmianie dostaniemy powiadomienie przez webhook, np. na Slacku albo w Teams."
-
-### 1:45–2:00 Dla informatyka i zakończenie
-
-**Na ekranie:** rozwinięta sekcja „Dla informatyka".
-
-**Co robisz:** rozwijasz sekcję, pokazujesz mapę powiązań i tabelę zasobów, wskazujesz eksport CSV/JSON i raport HTML.
-
-**Tekst:**
-> „Dla specjalisty jest warstwa techniczna: graf powiązań zasobów, tabela, dziennik narzędzi, eksport do CSV i JSON oraz raport HTML dla przełożonego. Podsumowując: jedno narzędzie, które pokazuje, co jest wystawione do internetu, co się zmieniło od ostatniego razu i co naprawić najpierw. Dziękuję."
+- Aplikacja: `bash run.sh` (domyślnie `http://127.0.0.1:8000`; w tej sesji deweloperskiej
+  chodzi też na `:8099` - sprawdź port przed wyjściem na scenę).
+- Przy pierwszym starcie na świeżej bazie powstaje użytkownik `admin` z losowym hasłem
+  wypisanym **raz** w logu terminala przy starcie (`[asi] utworzono pierwszego
+  użytkownika: admin / <hasło>`) - zapisz je sobie przed prezentacją, nie da się go
+  odzyskać inaczej.
+- Cel testowy do demo na żywo: `scanme.nmap.org` (oficjalny cel testowy Nmap, zgoda
+  na skanowanie jest domniemana przez jego twórców). **Uwaga:** to współdzielony
+  publiczny host - bywa niestabilny (sama tego doświadczyłam podczas developmentu:
+  port 80 bywa "filtered" bez związku z naszym kodem). Miej gotowy plan B (§4).
+- Jury może testować na własnym środowisku laboratoryjnym dostarczonym przez AGH
+  (p. 7 specyfikacji) - aplikacja przyjmuje dowolny host/CIDR/domenę z formularza,
+  nic nie trzeba przebudowywać pod ich adresację.
 
 ---
 
-## 3. Skrócona oś czasu
+## 1. Przygotowanie (przed wyjściem na scenę)
 
-| Czas | Etap | Akcja |
-|---|---|---|
-| 0:00–0:15 | Problem | Ekran startowy |
-| 0:15–0:30 | Start | Adres, zgoda, „Sprawdź stronę" |
-| 0:30–1:05 | Skan | Postęp, narzędzia |
-| 1:05–1:25 | Wynik | Ocena, uwagi, „Co zrobić" |
-| 1:25–1:45 | Zmiany | Diff, trend, cykliczność |
-| 1:45–2:00 | Technika | „Dla informatyka", eksport |
+1. `bash run.sh`, sprawdź adres w terminalu.
+2. Zaloguj się jako `admin`. Przeglądarka pełny ekran, ~125% powiększenia.
+3. Wykonaj **skan próbny** `scanme.nmap.org` (bez nuclei/OpenVAS) kilka minut wcześniej,
+   żeby sekcja "Zmiany względem poprzedniego skanu" miała z czym porównywać na żywo.
+4. Opcjonalnie przygotuj mały plik `demo-targets.csv` z 3-4 adresami (do bloku D) -
+   nie trzeba realnej dużej sieci na scenie, kilka wierszy wystarczy, żeby pokazać
+   mechanizm importu.
+5. Jeśli pokazujesz DefectDojo: miej otwartą drugą kartę z `https://demo.defectdojo.org`
+   zalogowaną, żeby po kliknięciu "Eksportuj" przełączyć się i pokazać wynik.
+6. Utwórz wcześniej drugiego użytkownika z rolą `read`, żeby mieć gotowe dane logowania
+   do bloku RBAC (nie zakładaj konta na żywo, jeśli nie musisz).
+
+---
+
+## 2. Bloki (składaj w dowolnej kolejności/długości)
+
+### Blok A - Problem i idea **[rdzeń, ~15 s]**
+**Ekran:** ekran logowania.
+**Tekst:** "Duże organizacje mają rozległą infrastrukturę, której często same do końca
+nie znają - adresy, które czasem odpowiadają, czasem nie, usługi wystawione przez
+przypadek. Atak zaczyna się od rozpoznania. To narzędzie robi to samo, ale dla
+obrońcy: discovery scan dużej sieci, priorytetyzacja i śledzenie zmian w czasie."
+
+### Blok B - Logowanie i role **[rdzeń, ~15 s]**
+**Ekran:** logowanie jako `admin`, potem (opcjonalnie) jako user z rolą `read`.
+**Tekst:** "Dostęp jest po rolach: administrator, ktoś kto może dodawać/usuwać/
+modyfikować, ktoś kto może tylko edytować i czytać, i czysty odczyt. [przełącz na
+usera `read`] Ta sama aplikacja, ale formularz nowego skanu po prostu znika -
+rola to wymusza po stronie serwera, nie tylko ukrywa przycisk w przeglądarce."
+
+### Blok C - Start skanu, wiele celów naraz **[rdzeń, ~20 s]**
+**Ekran:** formularz (jako `admin`).
+**Co robisz:** w polu celów wklej `scanme.nmap.org`, zaznacz zgodę, kliknij "Uruchom skan".
+**Tekst:** "Cel może być pojedynczą domeną, adresem IP, albo całym zakresem CIDR -
+jeden na linię albo po przecinku. Tu jedna domena dla szybkości demo, ale mechanizm
+jest ten sam dla tysięcy adresów na raz - obsługujemy zadaną w specyfikacji skalę
+ponad 10 000 adresów. Aplikacja nie ruszy bez potwierdzenia zgody właściciela."
+
+### Blok D - Import listy/CIDR z pliku **[rozszerzenie, ~20 s]**
+**Ekran:** sekcja "Import pliku (CSV/JSON)".
+**Co robisz:** wgrywasz `demo-targets.csv`, klikasz "Importuj i skanuj".
+**Tekst:** "Drugi sposób wprowadzenia celów: plik CSV albo JSON, dokładnie ten sam
+format, który aplikacja sama produkuje przy eksporcie - więc wynik jednego skanu
+można bez przeróbek wrzucić z powrotem jako wsad do kolejnego albo do innej instancji."
+
+### Blok E - Skan w toku, skala **[rdzeń, ~20 s]**
+**Ekran:** widok postępu, pasek `hosts_done/hosts_total`.
+**Tekst:** "Skan portów idzie paczkami adresów, które same się dostrajają do
+zmierzonej przepustowości - stąd widoczny, aktualizowany na żywo postęp i czas
+trwania, a nie czarna skrzynka. Limit pakietów na sekundę jest konfigurowalny,
+żeby nie zalać skanowanej sieci."
+
+**Uwaga:** jeśli skan trwa dłużej niż ok. 40 s, mów dalej o architekturze (allowlista
+celów, komendy bez powłoki - brak command injection) albo przejdź do Bloku B/D,
+wracając do wyniku później.
+
+### Blok F - Wynik i ustalenia **[rdzeń, ~20 s]**
+**Ekran:** wynik ryzyka 0-100, lista ustaleń.
+**Co robisz:** rozwijasz jedno ustalenie, pokazujesz pole "Co zrobić" i kolumnę źródła.
+**Tekst:** "Ocena ryzyka 0-100, ustalenia posortowane od najważniejszych, każde z
+zaleceniem naprawy i źródłem - czy to wbudowana reguła, nuclei, OpenVAS, czy
+własna sygnatura. Scanme ma otwarte porty i starą wersję oprogramowania celowo -
+to host testowy."
+
+### Blok G - Własne sygnatury **[rozszerzenie, ~20 s]**
+**Ekran:** sekcja "Własne sygnatury" w panelu bocznym.
+**Co robisz:** pokazujesz listę, dodajesz jedną (np. `header_present` / `X-Powered-By`).
+**Tekst:** "Jury może dostarczyć własny zestaw sygnatur - obsługujemy nagłówki,
+nazwy ciasteczek, wzorce w HTML, sprawdzenie istnienia ścieżki typu /admin bez
+żadnej próby logowania, i hash favicony. Wyłącznie bezpieczna detekcja obecności
+cechy, nigdy eksploatacja."
+
+### Blok H - Zmiany w czasie **[rdzeń, ~20 s]**
+**Ekran:** sekcja "Zmiany względem skanu #N" (wymaga wcześniejszego skanu próbnego z §1.3).
+**Co robisz:** klikasz "Skanuj ponownie", po zakończeniu przewijasz do diffu.
+**Tekst:** "Każdy kolejny skan tego samego celu jest automatycznie porównywany z
+poprzednim - nowe zasoby, zniknięte zasoby, nowe i naprawione ustalenia. To jest
+sedno specyfikacji: nie pojedynczy skan, tylko to, co się zmieniło."
+
+### Blok I - Eksport i DefectDojo **[rozszerzenie, ~20 s]**
+**Ekran:** przyciski eksportu pod wynikiem skanu.
+**Co robisz:** klikasz "Eksportuj do DefectDojo", przełączasz kartę, odświeżasz
+widok findingów w DefectDojo.
+**Tekst:** "Eksport do JSON i CSV do dalszej analizy, raport HTML dla przełożonego,
+i bezpośrednia integracja z DefectDojo - findingi lądują tam jako gotowy test w
+ramach produktu i engagementu, bez ręcznego przepisywania."
+
+### Blok J - Bezpieczeństwo działania **[rozszerzenie, ~15 s]**
+**Tekst (bez konkretnego ekranu, można mówić nad dowolnym widokiem):** "Same dane
+są istotne, więc szczegóły ustaleń i logi skanów są szyfrowane w spoczynku.
+Komendy do narzędzi skanujących idą bez powłoki systemowej, więc nie ma
+command injection, a moduł własnych sygnatur ma wbudowaną ochronę przed SSRF i
+przed złośliwymi wzorcami regex, które mogłyby zawiesić skan."
+
+### Blok K - Zakończenie **[rdzeń, ~10 s]**
+**Tekst:** "Jedno narzędzie: discovery na dużą skalę, priorytetyzacja, co zmieniło
+się od ostatniego razu, role dostępu i integracja z DefectDojo. Dziękuję."
+
+---
+
+## 3. Sugerowane złożenia
+
+| Budżet czasu | Bloki |
+|---|---|
+| ~2 min (rdzeń) | A, C, E, F, H, K |
+| ~3 min | A, B, C, E, F, H, K |
+| ~5 min (pełne) | A, B, C, D, E, F, G, H, I, J, K |
 
 ---
 
@@ -100,13 +147,18 @@ Prezentacja na komputerze, na żywo, realny skan celu `scanme.nmap.org` w trybie
 
 | Problem | Rozwiązanie |
 |---|---|
-| Skan trwa dłużej niż 50 s | Otwórz skan próbny z historii, powiedz, że to ten sam wynik sprzed chwili |
-| Brak internetu | Jak wyżej. Wywiad zewnętrzny i subdomeny pójdą na fallbacki, wynik będzie uboższy |
-| Brak sekcji „Zmiany" | Nie wykonano skanu próbnego. Pomiń ten fragment i rozwiń wątek cykliczności |
-| Nie ładuje się mapa powiązań | Biblioteka vis-network pochodzi z CDN. Pokaż tabelę zasobów (fallback) |
+| `scanme.nmap.org` nie odpowiada na dany port (bywa) | To normalne dla współdzielonego publicznego hosta - powiedz to wprost, to dobry przykład "niestabilnego hosta" z własnej specyfikacji AGH. Przełącz się na skan próbny z historii (Plan B). |
+| Skan trwa dłużej niż ok. 40-50 s | Mów dalej o architekturze (Blok J) albo przeskocz do bloku z gotowym wcześniejszym skanem. |
+| Brak internetu | Enumeracja subdomen (crt.sh) i część fingerprintingu pójdą na fallback, wynik będzie uboższy, ale aplikacja nie padnie. |
+| Brak sekcji "Zmiany" | Nie wykonano skanu próbnego z §1.3 - pomiń Blok H albo zrób "Skanuj ponownie" na żywo i opowiedz o mechanizmie bez pokazywania konkretnego diffu. |
+| Nie ładuje się mapa powiązań | Biblioteka vis-network z CDN, wymaga internetu - pokaż tabelę zasobów (zawsze działa, bez CDN). |
+| DefectDojo demo niedostępne/wolne | Pomiń Blok I albo pokaż sam request/response z wcześniej przygotowanego nagrania ekranu. |
 
 ## 5. Czego nie robić na pokazie
 
-- Nie włączaj trybu dokładnego ani nuclei. Skan nie zmieści się w 2 minutach i generuje dużo ruchu.
-- Nie skanuj niczego poza `scanme.nmap.org` (zgoda właściciela).
-- Nie pokazuj okna Ustawień z kluczami API.
+- Nie skanuj niczego poza `scanme.nmap.org` i własnym przygotowanym plikiem CSV/JSON
+  bez realnych, obcych adresów (zgoda właściciela!).
+- Nie włączaj nuclei/OpenVAS w krótkim demo - za wolne, generują dużo ruchu.
+- Nie pokazuj widzowi wygenerowanego hasła admina ani kluczy API (DefectDojo) na ekranie.
+- Nie obiecuj funkcji, których nie ma w kodzie (harmonogram cyklicznych skanów,
+  Shodan/CISA KEV/NVD) - jeśli ktoś z jury zapyta, powiedz wprost, że to na roadmapie.

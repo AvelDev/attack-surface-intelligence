@@ -44,6 +44,11 @@ Zmienne: `ASI_GVM_HOST` (adres IP hosta z GVM; brak = funkcja wyłączona), `ASI
 `ASI_GVM_SCANNER` (domyślnie "OpenVAS Default"), `ASI_GVM_PORT_LIST` (domyślnie "All IANA assigned TCP and UDP"),
 `ASI_GVM_MAX_WAIT` (sekundy, domyślnie 3600).
 
+## Dokumentacja
+- `docs/architektura.md` - architektura, model danych, mapowanie na wymagania specyfikacji AGH, znane zaległości.
+- `docs/screnariusz.md` - modułowy scenariusz prezentacji/demo.
+- `docs/openvas.md` - opcjonalna integracja z OpenVAS/GVM.
+
 ## Bezpieczeństwo
 - Skanuj wyłącznie zasoby, do których masz zgodę (UI wymaga potwierdzenia). Bezpieczny cel testowy: `scanme.nmap.org`.
 - API uruchamia skany - nie wystawiaj go publicznie bez uwierzytelnienia (reverse proxy + auth). Zob. `deploy/asi.service`.
