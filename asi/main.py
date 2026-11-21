@@ -248,7 +248,10 @@ async def import_results(file: UploadFile = File(...), user: dict = Depends(auth
         sid = c.execute(
             "INSERT INTO scans(target,target_hash,opts,status,stage,score,hosts_total,hosts_done,"
             "created,finished,log) VALUES(?,?,?,?,?,?,?,?,?,?,?)",
-            (target, str(scan_meta.get("target_hash") or ""), "{}", "done", "zaimportowany",
+            # target_hash NIE jest brany z pliku (mógłby podszyć się pod realny cel i zatruć
+            # baseline diffowania) - własna przestrzeń nazw, strukturalnie nigdy nie koliduje
+            # z hashem liczonym w _start_scan (tam to zawsze surowy hex bez prefiksu).
+            (target, "import:" + hashlib.sha256(target.encode()).hexdigest(), "{}", "done", "zaimportowany",
              int(scan_meta.get("score") or 0), len(assets), len(assets), now, now, crypto.enc(""))).lastrowid
         c.execute("INSERT OR IGNORE INTO scan_targets(scan_id,target) VALUES(?,?)", (sid, target))
         for a in assets:
@@ -313,7 +316,8 @@ def _diff(sid, target_hash, assets, findings):
     if not target_hash:
         return None
     with db.conn() as c:
-        prev = c.execute("SELECT id FROM scans WHERE target_hash=? AND status='done' AND id<? "
+        prev = c.execute("SELECT id FROM scans WHERE target_hash=? AND status='done' "
+                         "AND stage!='zaimportowany' AND id<? "
                          "ORDER BY id DESC LIMIT 1", (target_hash, sid)).fetchone()
     if not prev:
         return None
