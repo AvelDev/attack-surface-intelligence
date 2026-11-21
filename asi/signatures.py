@@ -114,9 +114,9 @@ def _check(sig, url, hdr, body):
     return False
 
 
-def apply(ctx, url, hdr, body):
+def apply(ctx, url, hdr, body, sigs):
     wid = f"web:{url}"
-    for sig in list_all():
+    for sig in sigs:
         try:
             hit = _check(sig, url, hdr, body)
         except Exception as e:  # noqa: BLE001 - błędna sygnatura nie może wywrócić skanu

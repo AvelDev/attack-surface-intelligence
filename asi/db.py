@@ -22,7 +22,6 @@ CREATE TABLE IF NOT EXISTS scans(
   finished REAL,
   log TEXT NOT NULL DEFAULT ''
 );
-CREATE INDEX IF NOT EXISTS idx_scans_target_hash ON scans(target_hash);
 CREATE TABLE IF NOT EXISTS scan_targets(
   scan_id INTEGER NOT NULL, target TEXT NOT NULL,
   PRIMARY KEY(scan_id, target)
@@ -79,10 +78,32 @@ def conn():
         c.close()
 
 
+# Kolumny dodane do `scans` już po pierwszym wydaniu - CREATE TABLE IF NOT EXISTS nie
+# doda ich do istniejącej bazy, więc trzeba ALTER TABLE (SQLite nie ma "ADD COLUMN IF
+# NOT EXISTS" - łapiemy błąd "duplicate column" na bazach, które już je mają).
+_SCANS_MIGRATIONS = (
+    "target_hash TEXT NOT NULL DEFAULT ''",
+    "hosts_total INTEGER NOT NULL DEFAULT 0",
+    "hosts_done INTEGER NOT NULL DEFAULT 0",
+    "duration_s REAL",
+)
+
+
+def _add_column(c, table, coldef):
+    try:
+        c.execute(f"ALTER TABLE {table} ADD COLUMN {coldef}")
+    except sqlite3.OperationalError as e:
+        if "duplicate column" not in str(e):
+            raise
+
+
 def init():
     os.makedirs(os.path.dirname(DB_PATH), exist_ok=True)
     with conn() as c:
         c.execute("PRAGMA journal_mode=WAL")
         c.executescript(SCHEMA)
+        for coldef in _SCANS_MIGRATIONS:
+            _add_column(c, "scans", coldef)
+        c.execute("CREATE INDEX IF NOT EXISTS idx_scans_target_hash ON scans(target_hash)")
         c.execute("UPDATE scans SET status='failed', stage='przerwany (restart)' "
                   "WHERE status IN ('queued','running')")

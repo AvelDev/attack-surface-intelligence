@@ -7,6 +7,7 @@ nagłówki, logi narzędzi) - identyfikatory/tytuły/severity zostają jawne, bo
 nich operują diff/sortowanie (zob. main._diff, main.get_scan).
 """
 import os
+import time
 
 from cryptography.fernet import Fernet, InvalidToken
 
@@ -20,14 +21,24 @@ def _load_key():
     if env:
         return env.encode()
     os.makedirs(os.path.dirname(KEY_PATH), exist_ok=True)
-    if os.path.exists(KEY_PATH):
+    try:
+        # O_EXCL: tylko jeden proces faktycznie tworzy klucz; przegrany w wyścigu (np. drugi
+        # worker uvicorna startujący w tej samej chwili) dostaje FileExistsError i czyta
+        # to, co zapisał zwycięzca, zamiast wywalić się na starcie.
+        fd = os.open(KEY_PATH, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+        key = Fernet.generate_key()
+        with os.fdopen(fd, "wb") as f:
+            f.write(key)
+        return key
+    except FileExistsError:
+        pass
+    for _ in range(20):
         with open(KEY_PATH, "rb") as f:
-            return f.read().strip()
-    key = Fernet.generate_key()
-    fd = os.open(KEY_PATH, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
-    with os.fdopen(fd, "wb") as f:
-        f.write(key)
-    return key
+            data = f.read().strip()
+        if data:
+            return data
+        time.sleep(0.05)  # zwycięzca wyścigu jeszcze pisze plik
+    raise RuntimeError(f"Nie udało się odczytać klucza z {KEY_PATH}")
 
 
 _fernet = Fernet(_load_key())

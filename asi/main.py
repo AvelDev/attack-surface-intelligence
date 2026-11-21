@@ -13,7 +13,7 @@ from fastapi import Cookie, Depends, FastAPI, File, Form, HTTPException, Respons
 from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, Response
 from pydantic import BaseModel
 
-from . import auth, crypto, db, scanner
+from . import auth, crypto, db, defectdojo, scanner
 from . import signatures as signatures_mod
 from . import targets as targets_mod
 
@@ -176,7 +176,10 @@ def _start_scan(raw_items, opts):
 def _opts_from(nuclei, gvm, rate_limit):
     opts = {"nuclei": bool(nuclei), "gvm": bool(gvm)}
     if rate_limit:
-        opts["rate_limit"] = int(rate_limit)
+        rate_limit = int(rate_limit)
+        if not (1 <= rate_limit <= 10000):
+            raise HTTPException(400, "rate_limit musi być w zakresie 1-10000 pakietów/s.")
+        opts["rate_limit"] = rate_limit
     return opts
 
 
@@ -195,13 +198,15 @@ def create_scan(req: ScanReq, user: dict = Depends(auth.require("add_remove_modi
 
 
 @app.post("/api/scans/import-targets")
-async def import_targets(file: UploadFile = File(...), authorized: bool = Form(False),
-                         nuclei: bool = Form(False), gvm: bool = Form(False),
-                         rate_limit: int | None = Form(None),
-                         user: dict = Depends(auth.require("add_remove_modify"))):
+def import_targets(file: UploadFile = File(...), authorized: bool = Form(False),
+                   nuclei: bool = Form(False), gvm: bool = Form(False),
+                   rate_limit: int | None = Form(None),
+                   user: dict = Depends(auth.require("add_remove_modify"))):
+    # def (nie async def) - FastAPI odpala takie endpointy w puli wątków, więc parsowanie
+    # pliku i pętle insertów do SQLite nie blokują pętli zdarzeń innym żądaniom w trakcie.
     if not authorized:
         raise HTTPException(400, "Potwierdź, że masz zgodę na skanowanie tych celów.")
-    text = (await file.read()).decode("utf-8", "ignore")
+    text = file.file.read().decode("utf-8", "ignore")
     name = (file.filename or "").lower()
     if name.endswith(".json"):
         raw_items = targets_mod.parse_json(text)
@@ -219,11 +224,11 @@ async def import_targets(file: UploadFile = File(...), authorized: bool = Form(F
 
 
 @app.post("/api/scans/import-results")
-async def import_results(file: UploadFile = File(...), user: dict = Depends(auth.require("add_remove_modify"))):
+def import_results(file: UploadFile = File(...), user: dict = Depends(auth.require("add_remove_modify"))):
     """Import gotowych wyników (nie celów do skanowania) - format symetryczny do
     /api/scans/{id}/export.json. CSV (format export.csv) importuje same findingi,
-    bez grafu zasobów."""
-    text = (await file.read()).decode("utf-8", "ignore")
+    bez grafu zasobów. def (nie async def) - patrz komentarz w import_targets()."""
+    text = file.file.read().decode("utf-8", "ignore")
     name = (file.filename or "").lower()
     scan_meta, assets, edges, findings = {}, [], [], []
     if name.endswith(".json"):
@@ -403,6 +408,20 @@ def export_csv(sid: int, user: dict = Depends(auth.require("read"))):
                     for k in ("severity", "title", "asset", "detail", "fix", "source")])
     return Response(buf.getvalue(), media_type="text/csv",
                     headers={"Content-Disposition": f'attachment; filename="asi-findings-{sid}.csv"'})
+
+
+@app.post("/api/scans/{sid}/defectdojo")
+def export_defectdojo(sid: int, user: dict = Depends(auth.require("add_remove_modify"))):
+    if not defectdojo.configured():
+        raise HTTPException(400, "DefectDojo nieskonfigurowany (ASI_DEFECTDOJO_URL / ASI_DEFECTDOJO_API_KEY).")
+    s, _, _, findings = _load(sid)
+    if not findings:
+        raise HTTPException(400, "Brak ustaleń do eksportu.")
+    try:
+        result = defectdojo.export_scan(s["target"], findings)
+    except RuntimeError as e:
+        raise HTTPException(502, str(e))
+    return {"ok": True, "defectdojo": result}
 
 
 @app.get("/api/scans/{sid}/report", response_class=HTMLResponse)

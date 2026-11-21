@@ -8,8 +8,29 @@ diff względem poprzedniego skanu tego samego celu oraz raport HTML.
     bash scripts/install_tools.sh   # nmap + narzędzia ProjectDiscovery (go install)
     bash run.sh                     # http://127.0.0.1:8000
 
-Zmienne: `ASI_HOST`, `ASI_PORT`, `ASI_DB`, `ASI_ALLOWED_TARGETS=example.com,lab.local` (allowlista),
-`ASI_ALLOW_PRIVATE=1` (skanuj też adresy prywatne/loopback znalezione w DNS).
+Zmienne: `ASI_HOST`, `ASI_PORT`, `ASI_DB`, `ASI_ALLOWED_TARGETS=example.com,lab.local` (allowlista;
+dla CIDR/IP podaj zakres, np. `10.0.0.0/8`), `ASI_ALLOW_PRIVATE=1` (skanuj też adresy prywatne
+znalezione w DNS - adresy podane wprost jako cel/CIDR nigdy nie są tym filtrowane).
+
+### Skala i wydajność
+`ASI_MAX_TARGETS` (domyślnie 20000 - twardy limit celów na jeden skan, liczony przed
+rozwinięciem CIDR), `ASI_MAX_WORKERS` (domyślnie 4 - ile skanów/jobów naraz zamiast
+dawnej kolejki po jednym), `ASI_SCAN_RATE` (domyślnie 300 - pakiety/s dla naabu/nmap,
+nadpisywalne per-skan przez pole `rate_limit` w żądaniu, 1-10000).
+
+### RBAC i szyfrowanie
+Przy pierwszym uruchomieniu powstaje użytkownik `admin` z losowym hasłem wypisanym raz w logu.
+4 role: `read`, `read_modify`, `add_remove_modify`, `admin`. `ASI_COOKIE_SECURE=1` - ustaw, gdy
+aplikacja stoi za reverse proxy terminującym TLS (domyślnie wyłączone, bo PoC chodzi po HTTP).
+`ASI_SECRET_KEY` (albo plik `ASI_SECRET_KEY_FILE`, domyślnie `data/secret.key`) - klucz Fernet do
+szyfrowania `findings.detail`/`scans.log`/`assets.data`; bez niego generowany i trwale zapisany
+automatycznie przy pierwszym starcie.
+
+### DefectDojo (opcjonalnie)
+Eksport findingów skanu jako "Generic Findings Import". `ASI_DEFECTDOJO_URL`,
+`ASI_DEFECTDOJO_API_KEY` (token z profilu usera DefectDojo), opcjonalnie `ASI_DEFECTDOJO_PRODUCT`
+i `ASI_DEFECTDOJO_PRODUCT_TYPE` (domyślnie "Attack Surface Intelligence" - tworzone automatycznie
+po stronie DefectDojo, jeśli nie istnieją).
 
 ### OpenVAS/GVM (opcjonalnie, głęboki skan w tle)
 Dodatkowy, wolny etap (minuty-godziny) uruchamiany w osobnym wątku, poza główną kolejką skanów -

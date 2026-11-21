@@ -73,11 +73,11 @@ def expand(raw_items):
             continue
         if t in seen:
             continue
-        seen.add(t)
-        out.append(t)
-        if len(out) > MAX_TARGETS:
+        if len(out) >= MAX_TARGETS:
             errors.append((raw, f"przekroczono limit {MAX_TARGETS} celów na skan"))
             break
+        seen.add(t)
+        out.append(t)
     return out, errors
 
 

@@ -21,13 +21,15 @@ import xml.etree.ElementTree as ET
 from concurrent.futures import ThreadPoolExecutor
 from urllib.parse import urlparse
 
-from . import crypto, db, gvm_scan, signatures
+from . import crypto, db, defectdojo, gvm_scan, signatures
 
 os.environ["PATH"] = os.environ.get("PATH", "") + os.pathsep + os.path.expanduser("~/go/bin")
 
 JOB_SEM = threading.Semaphore(int(os.environ.get("ASI_MAX_WORKERS", "4")))  # ile skanów (jobów) naraz
 DEFAULT_RATE = int(os.environ.get("ASI_SCAN_RATE", "300"))  # pakiety/s dla naabu/nmap (per batch)
 BATCH_TARGET_S = 30  # adaptacyjny rozmiar paczki hostów dąży do tylu sekund na paczkę
+LOG_LOCK = threading.Lock()  # serializuje read-modify-write Ctx.log() między wątkami jednego procesu
+NUCLEI_TEMPLATES_LOCK = threading.Lock()  # dwa równoległe skany nie ściągają szablonów naraz
 TOOLS = ["subfinder", "dnsx", "naabu", "nmap", "httpx", "nuclei"]
 SEV_W = {"critical": 40, "high": 20, "medium": 8, "low": 3, "info": 0}
 DOMAIN_RE = re.compile(r"^(?=.{1,253}$)([a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z]{2,63}$")
@@ -100,6 +102,7 @@ def tool_status():
         out[n] = {"installed": ok, "path": p if ok else None}
     gs = gvm_scan.status()
     out["openvas"] = {"installed": gs["reachable"], "path": f"{gvm_scan.HOST}:{gvm_scan.PORT}" if gs["configured"] else None}
+    out["defectdojo"] = {"installed": defectdojo.configured(), "path": defectdojo.URL or None}
     return out
 
 
@@ -115,9 +118,12 @@ class Ctx:
 
     def log(self, msg):
         line = time.strftime("%H:%M:%S ") + str(msg)[:600] + "\n"
-        with db.conn() as c:
+        # log jest szyfrowany, więc nie da się appendować atomowo w SQL (log = log || ?) -
+        # odczyt+doklejenie+zapis musi być pod globalnym lockiem, inaczej dwa wątki logujące
+        # do tego samego skanu (np. główny pipeline i wątek gvm_scan) gubią sobie nawzajem linie.
+        with LOG_LOCK, db.conn() as c:
             cur = c.execute("SELECT log FROM scans WHERE id=?", (self.id,)).fetchone()
-            new_log = crypto.dec(cur["log"]) + line  # log jest szyfrowany - nie da się appendować w SQL
+            new_log = crypto.dec(cur["log"]) + line
             c.execute("UPDATE scans SET log=? WHERE id=?", (crypto.enc(new_log), self.id))
 
     def stage(self, name):
@@ -538,6 +544,7 @@ def pipeline(ctx):
                 ctx.finding(pid, sev, title, "builtin", f"{ip}:{p['port']} {p['service']} {p['version']}", fix)
 
     ctx.stage("Sondowanie usług HTTP")
+    sigs = signatures.list_all()  # raz na skan, nie per-asset
     cand = {}
     for host, hips in ip_of.items():
         for ip in hips:
@@ -579,13 +586,14 @@ def pipeline(ctx):
         if ADMIN_RE.search(w.get("title", "")) and st < 500:
             ctx.finding(wid, "medium", "Potencjalny panel administracyjny/logowania dostępny publicznie",
                         "builtin", f"{url} - \"{w['title']}\"", "Ogranicz dostęp (VPN, allowlista IP, MFA).")
-        signatures.apply(ctx, url, hdr, body)
+        signatures.apply(ctx, url, hdr, body, sigs)
 
     if ctx.opts.get("nuclei") and tools["nuclei"]["installed"] and webs:
         ctx.stage("Skan podatności (nuclei)")
-        if not os.path.isdir(os.path.expanduser("~/nuclei-templates")):
-            ctx.log("Brak szablonów nuclei - pobieram (jednorazowo)")
-            run_cmd(ctx, ["nuclei", "-update-templates", "-nc"], 600)
+        with NUCLEI_TEMPLATES_LOCK:
+            if not os.path.isdir(os.path.expanduser("~/nuclei-templates")):
+                ctx.log("Brak szablonów nuclei - pobieram (jednorazowo)")
+                run_cmd(ctx, ["nuclei", "-update-templates", "-nc"], 600)
         with tempfile.NamedTemporaryFile("w", suffix=".txt", delete=False) as f:
             f.write("\n".join(w["url"] for w in webs if w.get("url")))
         try:

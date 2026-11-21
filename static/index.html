@@ -174,8 +174,10 @@ $('#sAdd').onclick = async () => {
   } catch (e) { $('#sErr').textContent = e.message; }
 };
 
+let TOOLS = {};
 async function loadTools() {
   const t = await api('/api/tools');
+  TOOLS = t;
   $('#tools').innerHTML = '<div class="tools-list">' + Object.entries(t).map(([n, v]) =>
     `<span class="tool ${v.installed ? 'ok' : 'no'}">${v.installed ? '●' : '○'} ${esc(n)}</span>`).join('') + '</div>' +
     '<div class="hint">○ = narzędzie niezainstalowane, użyty zamiennik w Pythonie</div>';
@@ -230,6 +232,7 @@ function render(d) {
       </div>
       ${running ? '' : `<div class="actions"><a href="/api/scans/${s.id}/report" target="_blank">Raport (PDF/druk)</a>
         <a href="/api/scans/${s.id}/export.json">Eksport JSON</a> <a href="/api/scans/${s.id}/export.csv">Eksport CSV</a>
+        ${TOOLS.defectdojo && TOOLS.defectdojo.installed ? '<a href="#" id="toDefectDojo">Eksportuj do DefectDojo</a>' : ''}
         <a href="#" id="rescan">Skanuj ponownie</a> <a href="#" id="del" style="color:var(--critical)">Usuń skan</a></div>`}
     </div>
     ${d.diff ? diffCard(d.diff) : ''}
@@ -247,6 +250,13 @@ function render(d) {
       if (!confirm('Usunąć skan #' + s.id + '?')) return;
       await api('/api/scans/' + s.id, {method: 'DELETE'}); current = null;
       $('#main').innerHTML = '<div class="card">Skan usunięty.</div>'; loadScans(); };
+  }
+  if ($('#toDefectDojo')) {
+    $('#toDefectDojo').onclick = async e => { e.preventDefault();
+      const el = e.target; const prev = el.textContent;
+      el.textContent = 'Wysyłanie...';
+      try { await api('/api/scans/' + s.id + '/defectdojo', {method: 'POST'}); el.textContent = 'Wysłano ✓'; }
+      catch (err) { alert('Błąd eksportu do DefectDojo: ' + err.message); el.textContent = prev; } };
   }
   document.querySelectorAll('.sevf').forEach(b => b.onclick = () => {
     const v = b.dataset.s;

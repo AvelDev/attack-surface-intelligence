@@ -13,6 +13,9 @@ from . import db
 
 COOKIE = "asi_session"
 SESSION_DAYS = 7
+# domyślnie wyłączone, bo PoC chodzi lokalnie po zwykłym HTTP (127.0.0.1) - ustaw
+# ASI_COOKIE_SECURE=1, gdy aplikacja stoi za reverse proxy terminującym TLS.
+COOKIE_SECURE = os.environ.get("ASI_COOKIE_SECURE") == "1"
 ITERATIONS = 200_000
 ROLES = ("read", "read_modify", "add_remove_modify", "admin")
 RANK = {r: i for i, r in enumerate(ROLES)}
@@ -73,7 +76,8 @@ def destroy_session(token):
 
 
 def set_session_cookie(response, token):
-    response.set_cookie(COOKIE, token, httponly=True, samesite="strict", max_age=SESSION_DAYS * 86400, path="/")
+    response.set_cookie(COOKIE, token, httponly=True, samesite="strict", secure=COOKIE_SECURE,
+                        max_age=SESSION_DAYS * 86400, path="/")
 
 
 def clear_session_cookie(response):
