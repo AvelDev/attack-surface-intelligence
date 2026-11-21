@@ -1,0 +1,393 @@
+<!doctype html>
+<html lang="pl">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Prezentacja: Attack Surface Intelligence | HackNation 2026</title>
+<link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;600;700;800&family=JetBrains+Mono:wght@400;700&display=swap" rel="stylesheet">
+<style>
+:root {
+  --bg: #090d16;
+  --card: #111726;
+  --line: #223048;
+  --fg: #f1f5f9;
+  --mut: #94a3b8;
+  --acc: #38bdf8;
+  --acc-glow: rgba(56, 189, 248, 0.25);
+  --critical: #ef4444;
+  --high: #f97316;
+  --medium: #f59e0b;
+  --ok: #10b981;
+}
+* { box-sizing: border-box; }
+body {
+  margin: 0;
+  background: var(--bg);
+  color: var(--fg);
+  font-family: 'Plus Jakarta Sans', system-ui, sans-serif;
+  height: 100vh;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+.slide-container {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 40px;
+  position: relative;
+}
+.slide {
+  display: none;
+  width: 100%;
+  max-width: 1100px;
+  background: var(--card);
+  border: 1px solid var(--line);
+  border-radius: 20px;
+  padding: 48px 56px;
+  box-shadow: 0 20px 60px rgba(0,0,0,0.6);
+  animation: fadeIn 0.3s ease;
+}
+.slide.active { display: block; }
+@keyframes fadeIn { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: translateY(0); } }
+
+.slide-num {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--acc);
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+  margin-bottom: 8px;
+}
+h1 { font-size: 40px; font-weight: 800; margin: 0 0 16px 0; color: #fff; line-height: 1.15; }
+h2 { font-size: 32px; font-weight: 800; margin: 0 0 20px 0; color: #fff; }
+p.lead { font-size: 18px; color: var(--mut); line-height: 1.6; margin: 0 0 28px 0; }
+
+.grid-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 24px; }
+.grid-3 { display: grid; grid-template-columns: repeat(3, 1fr); gap: 20px; }
+
+.box {
+  background: var(--bg);
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  padding: 22px;
+}
+.box h3 { margin: 0 0 10px 0; font-size: 17px; color: var(--acc); font-weight: 700; }
+.box p { margin: 0; font-size: 14.5px; color: var(--mut); line-height: 1.5; }
+.box ul { margin: 8px 0 0 0; padding-left: 20px; color: var(--fg); font-size: 14px; line-height: 1.6; }
+
+.badge { display: inline-block; padding: 4px 10px; border-radius: 6px; font-size: 12px; font-weight: 700; background: rgba(56,189,248,0.12); color: var(--acc); border: 1px solid rgba(56,189,248,0.25); margin-bottom: 12px; }
+
+/* Navigation footer */
+footer {
+  height: 64px;
+  padding: 0 40px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  border-top: 1px solid var(--line);
+  background: rgba(17, 23, 38, 0.6);
+}
+.progress-bar {
+  flex: 1;
+  max-width: 300px;
+  height: 6px;
+  background: var(--line);
+  border-radius: 3px;
+  overflow: hidden;
+  margin: 0 20px;
+}
+.progress-fill { height: 100%; background: var(--acc); transition: width 0.2s ease; }
+button {
+  background: var(--card);
+  color: var(--fg);
+  border: 1px solid var(--line);
+  padding: 8px 18px;
+  border-radius: 8px;
+  font-size: 14px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+button:hover { background: var(--acc); color: #04101e; border-color: var(--acc); }
+</style>
+</head>
+<body>
+
+<div class="slide-container">
+  <!-- Slajd 1 -->
+  <div class="slide active">
+    <span class="badge">HackNation 2026 · Zadanie CBI AGH</span>
+    <h1>Attack Surface Intelligence (ASI)</h1>
+    <p class="lead">System do ciągłego discovery scanu dużej infrastruktury (>10 000 IP), analizy zmian w czasie i priorytetyzacji ryzyka.</p>
+    <div class="grid-3" style="margin-top:36px;">
+      <div class="box">
+        <h3>Skalowalność</h3>
+        <p>Obsługa sieci akademickiej i rozległych zakresów CIDR z adaptacyjnym dzieleniem na paczki.</p>
+      </div>
+      <div class="box">
+        <h3>Śledzenie zmian</h3>
+        <p>Wykrywanie hostów niestabilnych (flapping), zmian pory dnia i potwierdzonych wyłączeń.</p>
+      </div>
+      <div class="box">
+        <h3>Bezpieczeństwo & RBAC</h3>
+        <p>Szyfrowanie at-rest (Fernet), 4 role uprawnień, trwały triage i integracja z DefectDojo.</p>
+      </div>
+    </div>
+  </div>
+
+  <!-- Slajd 2 -->
+  <div class="slide">
+    <div class="slide-num">Slajd 02 / 10</div>
+    <h2>Problem: Zarządzanie powierzchnią ataku w dużej organizacji</h2>
+    <p class="lead">Wyzwania zdefiniowane przez Centrum Bezpieczeństwa Informacji AGH:</p>
+    <div class="grid-2">
+      <div class="box">
+        <h3>Rozległość i dynamika</h3>
+        <ul>
+          <li>Infrastruktura licząca ponad 10 000 adresów IP i setki subdomen.</li>
+          <li>Systemy widoczne sieciowo tylko okresowo lub o określonych porach dnia.</li>
+          <li>Tradycyjne jednorazowe skany nie wychwytują zmian i "flappingu" usług.</li>
+        </ul>
+      </div>
+      <div class="box">
+        <h3>Luki w istniejących narzędziach</h3>
+        <ul>
+          <li>Brak prostych narzędzi łączących discovery scan z platformą <b>DefectDojo</b>.</li>
+          <li>Ryzyko zalania sieci brakiem kontroli tempa zapytań i timeboxingu.</li>
+          <li>Brak mechanizmów bezpiecznych sygnatur bez prób agresywnej eksploatacji.</li>
+        </ul>
+      </div>
+    </div>
+  </div>
+
+  <!-- Slajd 3 -->
+  <div class="slide">
+    <div class="slide-num">Slajd 03 / 10</div>
+    <h2>Architektura i zasada działania</h2>
+    <p class="lead">Zaprojektowane w architekturze Security-by-Design z odpornością na brak zależności:</p>
+    <div class="grid-3">
+      <div class="box">
+        <h3>1. Discovery Pipeline</h3>
+        <p>Orkiestracja wiodących narzędzi (subfinder → dnsx → naabu/nmap → httpx → nuclei) z automatycznym fallbackiem do czystego Pythona.</p>
+      </div>
+      <div class="box">
+        <h3>2. Baza & Szyfrowanie</h3>
+        <p>SQLite w trybie WAL z szyfrowaniem wrażliwych danych w spoczynku (Fernet: banery, logi, payloady). Ochrona O(1) przed DoS pamięciowym przy CIDR.</p>
+      </div>
+      <div class="box">
+        <h3>3. Interaktywne UI</h3>
+        <p>Płynny graf relacji Vis.js, telemetria na żywo bez przeładowań, dedykowany stepper postępu i generowanie raportów PDF/HTML.</p>
+      </div>
+    </div>
+  </div>
+
+  <!-- Slajd 4 -->
+  <div class="slide">
+    <div class="slide-num">Slajd 04 / 10</div>
+    <h2>Skala i wydajność: Skanowanie >10 000 adresów IP</h2>
+    <p class="lead">Realizacja wymogu podziału adresów źródłowych na optymalne podgrupy:</p>
+    <div class="grid-2">
+      <div class="box">
+        <h3>Adaptacyjny Port Scan</h3>
+        <ul>
+          <li>Dzielenie puli IP na dynamiczne paczki dążące do ~30 sekund na partię.</li>
+          <li>Brak "czarnej skrzynki" – operator na żywo widzi pasek postępu ($X/Y$ hostów).</li>
+          <li>Konfigurowalny rate-limiting (np. 100, 300, 1000 pakietów/s) chroni łącza organizacji.</li>
+        </ul>
+      </div>
+      <div class="box">
+        <h3>Weryfikacja Fałszywych Portów</h3>
+        <ul>
+          <li>Odrzucanie odpowiedzi <code>tcpwrapped</code> i firewalli pozorujących otwarte porty.</li>
+          <li>Podwójna weryfikacja banerów usług (SSH, FTP, SMTP, TLS, HTTP) eliminuje szum.</li>
+        </ul>
+      </div>
+    </div>
+  </div>
+
+  <!-- Slajd 5 -->
+  <div class="slide">
+    <div class="slide-num">Slajd 05 / 10</div>
+    <h2>Wykrywanie zmian w czasie i obsługa hostów niestabilnych</h2>
+    <p class="lead">Kluczowe kryterium oceny AGH (15% punktacji):</p>
+    <div class="grid-3">
+      <div class="box">
+        <h3>Diff między skanami</h3>
+        <p>Automatyczne porównanie z bazą referencyjną: nowe zasoby (+), zniknięte usługi (-), nowe podatności i naprawione luki (✓).</p>
+      </div>
+      <div class="box">
+        <h3>Flapping Detection</h3>
+        <p>Wykrywanie hostów, które odpowiadają niestabilnie w zależności od pory dnia na przestrzeni cykli skanowania.</p>
+      </div>
+      <div class="box">
+        <h3>Potwierdzony Offline</h3>
+        <p>Eliminacja fałszywych alarmów: host oznaczany jako trwale wyłączony dopiero po braku odpowiedzi w $\ge 3$ kolejnych skanach.</p>
+      </div>
+    </div>
+  </div>
+
+  <!-- Slajd 6 -->
+  <div class="slide">
+    <div class="slide-num">Slajd 06 / 10</div>
+    <h2>Bezpieczne Sygnatury Detekcyjne (Pkt 10 specyfikacji)</h2>
+    <p class="lead">Wykrywanie obecności technologii i konfiguracji BEZ prób eksploatacji:</p>
+    <div class="grid-2">
+      <div class="box">
+        <h3>Wspierane typy sygnatur</h3>
+        <ul>
+          <li><b>header_present</b>: Obecność specyficznych nagłówków (np. <code>X-Jenkins</code>).</li>
+          <li><b>cookie_name</b>: Wykrywanie sesji frameworków i CMS.</li>
+          <li><b>html_regex & footer_version</b>: Wzorce w kodzie HTML i stopkach.</li>
+          <li><b>path_check</b>: Badanie istnienia ścieżek (<code>/admin</code>, <code>/login</code>) czystym GET.</li>
+          <li><b>favicon_hash</b>: SHA-256 ikony aplikacji.</li>
+        </ul>
+      </div>
+      <div class="box">
+        <h3>Zabezpieczenia silnika reguł</h3>
+        <ul>
+          <li><b>Ochrona SSRF</b>: Ścisła walidacja schematu, hosta i portu przy badaniu ścieżek; wyłączone przekierowania.</li>
+          <li><b>Ochrona ReDoS</b>: Regexy użytkownika uruchamiane w odizolowanym procesie z twardym limitem czasu (2 s).</li>
+        </ul>
+      </div>
+    </div>
+  </div>
+
+  <!-- Slajd 7 -->
+  <div class="slide">
+    <div class="slide-num">Slajd 07 / 10</div>
+    <h2>Trwały Triage (Pkt 14) i Model Uprawnień RBAC</h2>
+    <p class="lead">Pełna realizacja punktów 12, 13 i 14 wymagań konkursowych:</p>
+    <div class="grid-2">
+      <div class="box">
+        <h3>4 Konkretne Role RBAC</h3>
+        <ul>
+          <li><b>Administracja</b>: Zarządzanie użytkownikami, systemem i kluczami.</li>
+          <li><b>Dodawanie, usuwanie, modyfikacja</b>: Uruchamianie i kasowanie skanów.</li>
+          <li><b>Modyfikacja i odczyt</b>: Triage ustaleń i edycja zalecenia.</li>
+          <li><b>Odczyt</b>: Podgląd dashboardu i eksport raportów (audytor).</li>
+        </ul>
+      </div>
+      <div class="box">
+        <h3>Trwały Triage (Wymóg 14)</h3>
+        <ul>
+          <li>Możliwość zmiany wagi podatności (np. oznaczenie False Positive).</li>
+          <li>Decyzja analityka jest trwale zapamiętywana w tabeli <code>finding_overrides</code>.</li>
+          <li><b>Kolejny skan NIE nadpisuje decyzji analityka</b> – stan jest zachowany!</li>
+        </ul>
+      </div>
+    </div>
+  </div>
+
+  <!-- Slajd 8 -->
+  <div class="slide">
+    <div class="slide-num">Slajd 08 / 10</div>
+    <h2>Integracje: DefectDojo i OpenVAS/GVM</h2>
+    <p class="lead">Gotowość do wdrożenia w ekosystemie narzędziowym CBI AGH:</p>
+    <div class="grid-2">
+      <div class="box">
+        <h3>Integracja z DefectDojo (20% oceny)</h3>
+        <ul>
+          <li>Automatyczny eksport w standardzie <i>Generic Findings Import</i>.</li>
+          <li>Mapowanie wag ryzyka (Critical, High, Medium, Low, Info).</li>
+          <li>Możliwość konfiguracji tokenu API wprost z UI lub zmiennych środowiskowych.</li>
+        </ul>
+      </div>
+      <div class="box">
+        <h3>Głęboki audyt OpenVAS / GVM</h3>
+        <ul>
+          <li>Mostek GMP po TCP umożliwiający podpięcie instancji OpenVAS.</li>
+          <li>Wykonanie w tle – wolny skan GVM nie blokuje szybkiej kolejki discovery.</li>
+        </ul>
+      </div>
+    </div>
+  </div>
+
+  <!-- Slajd 9 -->
+  <div class="slide">
+    <div class="slide-num">Slajd 09 / 10</div>
+    <h2>Harmonogram i Time-boxing (Okno Czasowe)</h2>
+    <p class="lead">Odpowiedź na specyficzny wymóg formalny CBI AGH:</p>
+    <div class="grid-2">
+      <div class="box">
+        <h3>Cykliczne zadania</h3>
+        <ul>
+          <li>Definiowanie harmonogramów (co 6h, 12h, 24h, tygodniowo).</li>
+          <li>Wbudowany scheduler w tle dbający o terminowe wywoływanie kolejnych cykli.</li>
+        </ul>
+      </div>
+      <div class="box">
+        <h3>Wymuszanie okna czasowego (Timebox)</h3>
+        <ul>
+          <li>Możliwość określenia maksymalnego okna czasowego (np. 60 minut).</li>
+          <li>W przypadku przekroczenia czasu: bezpieczne wstrzymanie (status <code>paused_window</code>).</li>
+          <li>Wznowienie badania w kolejnym wyznaczonym oknie czasowym.</li>
+        </ul>
+      </div>
+    </div>
+  </div>
+
+  <!-- Slajd 10 -->
+  <div class="slide">
+    <div class="slide-num">Slajd 10 / 10</div>
+    <h2>Podsumowanie i Przejście do Demonstracji na Żywo</h2>
+    <p class="lead">Kompletne, przetestowane narzędzie gotowe do wdrożenia:</p>
+    <div class="grid-3" style="margin-bottom:30px;">
+      <div class="box" style="border-top:3px solid var(--ok);">
+        <h3>100% Wymagań</h3>
+        <p>Spełnione wszystkie punkty minimalne oraz mile widziane z wytycznych CBI AGH.</p>
+      </div>
+      <div class="box" style="border-top:3px solid var(--acc);">
+        <h3>Jakość Kodu</h3>
+        <p>Bezpieczeństwo operacyjne, ochrona przed wstrzyknięciami i szyfrowanie bazy.</p>
+      </div>
+      <div class="box" style="border-top:3px solid var(--high);">
+        <h3>Live Demo</h3>
+        <p>Przetestowane na celach laboratoryjnych oraz publicznych testowych (scanme.nmap.org).</p>
+      </div>
+    </div>
+    <div style="text-align:center;">
+      <h3 style="color:#fff;margin:0 0 8px;">Zapraszamy na demonstrację działania systemu na żywo!</h3>
+      <p style="color:var(--mut);margin:0;">Naciśnij ESC lub zamknij, aby przejść do panelu aplikacji.</p>
+    </div>
+  </div>
+</div>
+
+<footer>
+  <div style="font-weight:700;font-size:13px;color:var(--mut);">
+    Attack Surface Intelligence · <span style="color:#fff;">CBI AGH</span>
+  </div>
+  <div class="progress-bar"><div class="progress-fill" id="pFill" style="width:10%;"></div></div>
+  <div style="display:flex;gap:10px;align-items:center;">
+    <span id="slideCounter" style="font-family:'JetBrains Mono';font-size:13px;color:var(--mut);margin-right:12px;">1 / 10</span>
+    <button id="btnPrev">Poprzedni</button>
+    <button id="btnNext" style="background:var(--acc);color:#04101e;">Następny</button>
+  </div>
+</footer>
+
+<script>
+let cur = 0;
+const slides = document.querySelectorAll('.slide');
+const total = slides.length;
+
+function show(idx) {
+  if (idx < 0) idx = 0;
+  if (idx >= total) idx = total - 1;
+  cur = idx;
+  slides.forEach((s, i) => s.classList.toggle('active', i === cur));
+  document.getElementById('slideCounter').textContent = `${cur + 1} / ${total}`;
+  document.getElementById('pFill').style.width = `${((cur + 1) / total) * 100}%`;
+}
+
+document.getElementById('btnPrev').onclick = () => show(cur - 1);
+document.getElementById('btnNext').onclick = () => show(cur + 1);
+
+window.addEventListener('keydown', e => {
+  if (e.key === 'ArrowRight' || e.key === ' ' || e.key === 'PageDown') show(cur + 1);
+  if (e.key === 'ArrowLeft' || e.key === 'PageUp') show(cur - 1);
+});
+</script>
+</body>
+</html>

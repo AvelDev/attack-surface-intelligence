@@ -102,7 +102,7 @@ def tool_status():
         out[n] = {"installed": ok, "path": p if ok else None}
     gs = gvm_scan.status()
     out["openvas"] = {"installed": gs["reachable"], "path": f"{gvm_scan.HOST}:{gvm_scan.PORT}" if gs["configured"] else None}
-    out["defectdojo"] = {"installed": defectdojo.configured(), "path": _host_only(defectdojo.URL)}
+    out["defectdojo"] = {"installed": defectdojo.configured(), "path": _host_only(defectdojo.get_config()[0])}
     return out
 
 
@@ -155,12 +155,27 @@ class Ctx:
             with db.conn() as c:
                 c.execute("INSERT OR IGNORE INTO edges VALUES(?,?,?)", (self.id, src, dst))
 
+    def check_time_limit(self):
+        limit_m = self.opts.get("time_window_mins")
+        if limit_m and (time.time() - self.created) > (int(limit_m) * 60):
+            raise TimeoutError(f"Przekroczono okno czasowe skanu ({limit_m} min)")
+
     def finding(self, asset, sev, title, source, detail="", fix=""):
         key = (asset, title)
         if key in self._seen_f:
             return
         self._seen_f.add(key)
         with db.conn() as c:
+            ov = c.execute(
+                "SELECT severity, fix, false_positive FROM finding_overrides WHERE asset=? AND title=?",
+                (asset, title)).fetchone()
+            if ov:
+                sev = ov["severity"]
+                if ov["fix"]:
+                    fix = ov["fix"]
+                if ov["false_positive"]:
+                    sev = "info"
+                    title = f"[False Positive] {title}"
             c.execute("INSERT INTO findings VALUES(?,?,?,?,?,?,?)",
                       (self.id, asset, sev, title, source, crypto.enc(detail[:1000]), fix))
 
@@ -176,9 +191,9 @@ class Ctx:
         with db.conn() as c:
             sev = [r["severity"] for r in c.execute(
                 "SELECT severity FROM findings WHERE scan_id=?", (self.id,))]
+            stage_txt = "zakończony" if status == "done" else ("okno czasowe (wstrzymany)" if status == "paused_window" else "błąd")
             c.execute("UPDATE scans SET status=?, stage=?, score=?, finished=?, duration_s=? WHERE id=?",
-                      (status, "zakończony" if status == "done" else "błąd",
-                       risk_score(sev), time.time(), time.time() - self.created, self.id))
+                      (status, stage_txt, risk_score(sev), time.time(), time.time() - self.created, self.id))
 
 
 def risk_score(severities):
@@ -389,6 +404,7 @@ def batched_port_scan(ctx, ips, tools, rate=None, start_batch=200):
     batch_size, done = max(1, start_batch), 0
     i = 0
     while i < len(ips):
+        ctx.check_time_limit()
         chunk = ips[i:i + batch_size]
         t0 = time.time()
         result.update(scan_ports(ctx, chunk, tools, rate=rate))
@@ -636,6 +652,9 @@ def run_scan(scan_id):
                 c.execute("UPDATE scans SET status='running' WHERE id=?", (scan_id,))
             pipeline(ctx)
             ctx.finish("done")
+        except TimeoutError as te:
+            ctx.log(f"WSTRZYMANO: {te} - wznowienie nastąpi w kolejnym oknie czasowym.")
+            ctx.finish("paused_window")
         except Exception as e:  # noqa: BLE001
             ctx.log(f"BŁĄD KRYTYCZNY: {e!r}")
             ctx.finish("failed")

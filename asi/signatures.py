@@ -52,19 +52,23 @@ def _regex_search(pat, text):
     wątku w Pythonie nie da się wymusić do zatrzymania w trakcie dopasowywania regexa w C
     (future.result(timeout=...) tylko przestaje czekać, porzucony wątek dalej pali CPU
     w nieskończoność), proces można zabić sygnałem."""
-    ctx = multiprocessing.get_context("fork")  # 'fork' (Linux/WSL - jedyna platforma ASI) nie
-    q = ctx.Queue()                            # wymaga reimportu __main__ jak spawn/forkserver
-    p = ctx.Process(target=_regex_worker, args=(pat, text, q), daemon=True)
-    p.start()
-    p.join(REGEX_TIMEOUT_S)
-    if p.is_alive():
-        p.kill()
-        p.join(1)
-        return False
     try:
+        ctx_name = "fork" if hasattr(os, "fork") else "spawn"
+        ctx = multiprocessing.get_context(ctx_name)
+        q = ctx.Queue()
+        p = ctx.Process(target=_regex_worker, args=(pat, text, q), daemon=True)
+        p.start()
+        p.join(REGEX_TIMEOUT_S)
+        if p.is_alive():
+            p.kill()
+            p.join(1)
+            return False
         return q.get_nowait()
     except Exception:  # noqa: BLE001
-        return False
+        try:
+            return bool(re.search(pat, text, re.I))
+        except Exception:
+            return False
 
 
 def list_all(enabled_only=True):
@@ -104,6 +108,10 @@ def _check(sig, url, hdr, body):
     if t == "cookie_name":
         return bool(re.search(rf"(?i)\b{re.escape(pat)}=", hdr.get("set-cookie", "")))
     if t in ("html_regex", "footer_version_regex"):
+        if not body:
+            _, raw_body = _fetch_path(url, "/")
+            if raw_body:
+                body = raw_body.decode("utf-8", "ignore")
         return bool(body) and _regex_search(pat, body)
     if t == "path_check":
         status, _ = _fetch_path(url, pat)

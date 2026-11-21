@@ -64,6 +64,29 @@ CREATE TABLE IF NOT EXISTS signatures(
   fix TEXT NOT NULL DEFAULT '',
   enabled INTEGER NOT NULL DEFAULT 1
 );
+CREATE TABLE IF NOT EXISTS finding_overrides(
+  asset TEXT NOT NULL,
+  title TEXT NOT NULL,
+  severity TEXT NOT NULL,
+  fix TEXT NOT NULL DEFAULT '',
+  false_positive INTEGER NOT NULL DEFAULT 0,
+  updated REAL NOT NULL,
+  PRIMARY KEY(asset, title)
+);
+CREATE TABLE IF NOT EXISTS settings(
+  key TEXT PRIMARY KEY,
+  value TEXT NOT NULL
+);
+CREATE TABLE IF NOT EXISTS schedules(
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  target TEXT NOT NULL,
+  opts TEXT NOT NULL DEFAULT '{}',
+  interval_hours INTEGER NOT NULL DEFAULT 24,
+  time_window_mins INTEGER NOT NULL DEFAULT 60,
+  last_run REAL,
+  next_run REAL NOT NULL,
+  enabled INTEGER NOT NULL DEFAULT 1
+);
 """
 
 

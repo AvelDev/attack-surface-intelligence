@@ -22,10 +22,35 @@ STATIC = os.path.join(db.ROOT, "static")
 SEV_ORDER = {"critical": 0, "high": 1, "medium": 2, "low": 3, "info": 4}
 
 
+def _scheduler_loop():
+    while True:
+        try:
+            now = time.time()
+            with db.conn() as c:
+                due = c.execute(
+                    "SELECT id, target, opts, interval_hours, time_window_mins FROM schedules "
+                    "WHERE enabled=1 AND next_run <= ?", (now,)).fetchall()
+                for s in due:
+                    opts = json.loads(s["opts"] or "{}")
+                    if s["time_window_mins"]:
+                        opts["time_window_mins"] = s["time_window_mins"]
+                    targets = [t.strip() for t in s["target"].split(",") if t.strip()]
+                    try:
+                        _start_scan(targets, opts)
+                        next_t = now + max(1, s["interval_hours"]) * 3600
+                        c.execute("UPDATE schedules SET last_run=?, next_run=? WHERE id=?", (now, next_t, s["id"]))
+                    except Exception:
+                        pass
+        except Exception:
+            pass
+        time.sleep(30)
+
+
 @app.on_event("startup")
 def _startup():
     db.init()
     auth.bootstrap_admin()
+    threading.Thread(target=_scheduler_loop, daemon=True).start()
 
 
 class LoginReq(BaseModel):
@@ -145,6 +170,7 @@ class ScanReq(BaseModel):
     nuclei: bool = False
     gvm: bool = False
     rate_limit: int | None = None
+    time_window_mins: int | None = None
 
 
 @app.get("/")
@@ -173,13 +199,15 @@ def _start_scan(raw_items, opts):
     return sid, errors
 
 
-def _opts_from(nuclei, gvm, rate_limit):
+def _opts_from(nuclei, gvm, rate_limit, time_window_mins=None):
     opts = {"nuclei": bool(nuclei), "gvm": bool(gvm)}
     if rate_limit:
         rate_limit = int(rate_limit)
         if not (1 <= rate_limit <= 10000):
             raise HTTPException(400, "rate_limit musi być w zakresie 1-10000 pakietów/s.")
         opts["rate_limit"] = rate_limit
+    if time_window_mins:
+        opts["time_window_mins"] = int(time_window_mins)
     return opts
 
 
@@ -190,7 +218,7 @@ def create_scan(req: ScanReq, user: dict = Depends(auth.require("add_remove_modi
     raw_items = req.targets if req.targets else ([req.target] if req.target else [])
     if not raw_items:
         raise HTTPException(400, "Podaj cel (target) lub listę celów (targets).")
-    sid, errors = _start_scan(raw_items, _opts_from(req.nuclei, req.gvm, req.rate_limit))
+    sid, errors = _start_scan(raw_items, _opts_from(req.nuclei, req.gvm, req.rate_limit, req.time_window_mins))
     resp = {"id": sid}
     if errors:
         resp["warnings"] = [f"{r}: {e}" for r, e in errors[:20]]
@@ -201,9 +229,8 @@ def create_scan(req: ScanReq, user: dict = Depends(auth.require("add_remove_modi
 def import_targets(file: UploadFile = File(...), authorized: bool = Form(False),
                    nuclei: bool = Form(False), gvm: bool = Form(False),
                    rate_limit: int | None = Form(None),
+                   time_window_mins: int | None = Form(None),
                    user: dict = Depends(auth.require("add_remove_modify"))):
-    # def (nie async def) - FastAPI odpala takie endpointy w puli wątków, więc parsowanie
-    # pliku i pętle insertów do SQLite nie blokują pętli zdarzeń innym żądaniom w trakcie.
     if not authorized:
         raise HTTPException(400, "Potwierdź, że masz zgodę na skanowanie tych celów.")
     text = file.file.read().decode("utf-8", "ignore")
@@ -216,7 +243,7 @@ def import_targets(file: UploadFile = File(...), authorized: bool = Form(False),
         raw_items = targets_mod.parse_text(text)
     if not raw_items:
         raise HTTPException(400, "Plik nie zawiera żadnych celów.")
-    sid, errors = _start_scan(raw_items, _opts_from(nuclei, gvm, rate_limit))
+    sid, errors = _start_scan(raw_items, _opts_from(nuclei, gvm, rate_limit, time_window_mins))
     resp = {"id": sid}
     if errors:
         resp["warnings"] = [f"{r}: {e}" for r, e in errors[:20]]
@@ -321,45 +348,85 @@ def _diff(sid, target_hash, assets, findings):
     if not target_hash:
         return None
     with db.conn() as c:
-        prev = c.execute("SELECT id FROM scans WHERE target_hash=? AND status='done' "
+        hist = c.execute("SELECT id FROM scans WHERE target_hash=? AND status='done' "
                          "AND stage!='zaimportowany' AND id<? "
-                         "ORDER BY id DESC LIMIT 1", (target_hash, sid)).fetchone()
-    if not prev:
+                         "ORDER BY id DESC LIMIT 4", (target_hash, sid)).fetchall()
+    if not hist:
         return None
-    _, passets, _, pfind = _load(prev["id"])
+    prev_id = hist[0]["id"]
+    _, passets, _, pfind = _load(prev_id)
     cur, old = {a["id"] for a in assets}, {a["id"] for a in passets}
     cf = {(f["asset"], f["title"]) for f in findings}
     of = {(f["asset"], f["title"]) for f in pfind}
-    return {"against": prev["id"], "new_assets": sorted(cur - old), "removed_assets": sorted(old - cur),
-            "new_findings": [{"asset": a, "title": t} for a, t in sorted(cf - of)],
-            "resolved_findings": [{"asset": a, "title": t} for a, t in sorted(of - cf)]}
+
+    # Analiza flappingu i stabilności hostów (Kryterium AGH: dany adres może odpowiadać lub nie zależnie od pory)
+    flapping = []
+    hist_sets = []
+    if len(hist) > 1:
+        for h in hist[1:]:
+            try:
+                _, ha, _, _ = _load(h["id"])
+                hist_sets.append({a["id"] for a in ha})
+            except Exception:
+                pass
+        for aid in cur:
+            if aid not in old and any(aid in hs for hs in hist_sets):
+                flapping.append(aid)
+            elif aid in old and any(aid not in hs for hs in hist_sets):
+                flapping.append(aid)
+
+    # Potwierdzony brak odpowiedzi po sukcesywnych skanach (specyfikacja AGH)
+    confirmed_offline = []
+    missing_from_cur = old - cur
+    if len(hist_sets) >= 2 and missing_from_cur:
+        for aid in missing_from_cur:
+            if all(aid not in hs for hs in hist_sets[:2]):
+                confirmed_offline.append(aid)
+
+    return {
+        "against": prev_id,
+        "new_assets": sorted(cur - old),
+        "removed_assets": sorted(old - cur),
+        "flapping_assets": sorted(set(flapping)),
+        "confirmed_offline": sorted(set(confirmed_offline)),
+        "new_findings": [{"asset": a, "title": t} for a, t in sorted(cf - of)],
+        "resolved_findings": [{"asset": a, "title": t} for a, t in sorted(of - cf)]
+    }
 
 
 class FindingEdit(BaseModel):
     fix: str | None = None
     severity: str | None = None
+    false_positive: bool | None = None
+    persist_future: bool = True
 
 
 @app.patch("/api/findings/{rowid}")
 def edit_finding(rowid: int, req: FindingEdit, user: dict = Depends(auth.require("read_modify"))):
-    """Edycja ustalenia niezależna od stanu skanu (pkt 14 specyfikacji) - zmiana zostaje
-    w tym samym wierszu, więc przetrwa do kolejnych odczytów tego skanu."""
-    fields, vals = [], []
-    if req.fix is not None:
-        fields.append("fix=?")
-        vals.append(req.fix)
-    if req.severity is not None:
-        if req.severity not in SEV_ORDER:
-            raise HTTPException(400, "Nieprawidłowa waga.")
-        fields.append("severity=?")
-        vals.append(req.severity)
-    if not fields:
-        raise HTTPException(400, "Brak pól do edycji.")
-    vals.append(rowid)
+    """Edycja ustalenia niezależna od stanu skanu (pkt 14 specyfikacji) oraz trwały triage
+    zachowywany przy kolejnych skanach w finding_overrides."""
     with db.conn() as c:
-        cur = c.execute(f"UPDATE findings SET {','.join(fields)} WHERE rowid=?", vals)
-        if cur.rowcount == 0:
+        row = c.execute("SELECT scan_id, asset, title, severity, fix FROM findings WHERE rowid=?", (rowid,)).fetchone()
+        if not row:
             raise HTTPException(404, "Nie ma takiego ustalenia.")
+        sev = req.severity or row["severity"]
+        if sev not in SEV_ORDER:
+            raise HTTPException(400, "Nieprawidłowa waga.")
+        fix = req.fix if req.fix is not None else row["fix"]
+        title = row["title"]
+        if req.false_positive:
+            sev = "info"
+            if not title.startswith("[False Positive] "):
+                title = f"[False Positive] {title}"
+        elif req.false_positive is False and title.startswith("[False Positive] "):
+            title = title.replace("[False Positive] ", "")
+
+        c.execute("UPDATE findings SET severity=?, fix=?, title=? WHERE rowid=?", (sev, fix, title, rowid))
+        if req.persist_future:
+            c.execute(
+                "INSERT OR REPLACE INTO finding_overrides(asset, title, severity, fix, false_positive, updated) "
+                "VALUES(?,?,?,?,?,?)",
+                (row["asset"], row["title"].replace("[False Positive] ", ""), sev, fix, 1 if req.false_positive else 0, time.time()))
     return {"ok": True}
 
 
@@ -436,3 +503,63 @@ def report(sid: int, user: dict = Depends(auth.require("read"))):
             f"<h1>Raport powierzchni ataku: {e(s['target'])}</h1>"
             f"<p>Wynik ryzyka: <b>{s['score']}/100</b> · zasobów: {len(assets)} · ustaleń: {len(findings)}</p>"
             f"<table><tr><th>Waga</th><th>Ustalenie</th><th>Zasób</th><th>Zalecenie</th></tr>{rows}</table>")
+
+
+class DefectDojoSettingsReq(BaseModel):
+    url: str
+    api_key: str
+
+
+@app.get("/api/settings")
+def get_settings(user: dict = Depends(auth.require("read"))):
+    dd_url, dd_key = defectdojo.get_config()
+    return {
+        "defectdojo_url": dd_url or "",
+        "defectdojo_configured": bool(dd_url and dd_key),
+        "openvas_configured": scanner.tool_status().get("openvas", {}).get("installed", False)
+    }
+
+
+@app.post("/api/settings/defectdojo")
+def save_defectdojo_settings(req: DefectDojoSettingsReq, user: dict = Depends(auth.require("add_remove_modify"))):
+    with db.conn() as c:
+        c.execute("INSERT OR REPLACE INTO settings(key, value) VALUES('defectdojo_url', ?)", (req.url.strip(),))
+        c.execute("INSERT OR REPLACE INTO settings(key, value) VALUES('defectdojo_api_key', ?)", (req.api_key.strip(),))
+    return {"ok": True}
+
+
+class ScheduleReq(BaseModel):
+    target: str
+    interval_hours: int = 24
+    time_window_mins: int = 60
+    nuclei: bool = False
+    gvm: bool = False
+    rate_limit: int | None = None
+
+
+@app.get("/api/schedules")
+def list_schedules(user: dict = Depends(auth.require("read"))):
+    with db.conn() as c:
+        rows = c.execute("SELECT id, target, opts, interval_hours, time_window_mins, last_run, next_run, enabled FROM schedules ORDER BY id DESC").fetchall()
+    return [dict(r) for r in rows]
+
+
+@app.post("/api/schedules")
+def create_schedule(req: ScheduleReq, user: dict = Depends(auth.require("add_remove_modify"))):
+    opts = _opts_from(req.nuclei, req.gvm, req.rate_limit, req.time_window_mins)
+    now = time.time()
+    next_run = now + max(1, req.interval_hours) * 3600
+    with db.conn() as c:
+        sid = c.execute(
+            "INSERT INTO schedules(target, opts, interval_hours, time_window_mins, next_run, enabled) "
+            "VALUES(?,?,?,?,?,1)",
+            (req.target.strip(), json.dumps(opts), req.interval_hours, req.time_window_mins, next_run)).lastrowid
+    return {"id": sid}
+
+
+@app.delete("/api/schedules/{sid}")
+def delete_schedule(sid: int, user: dict = Depends(auth.require("add_remove_modify"))):
+    with db.conn() as c:
+        c.execute("DELETE FROM schedules WHERE id=?", (sid,))
+    return {"ok": True}
+
