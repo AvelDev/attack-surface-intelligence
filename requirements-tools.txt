@@ -1,0 +1,4 @@
+# Opcjonalne narzędzia Pythona (instalowane do tego samego venv co aplikacja)
+sslyze>=6
+wafw00f>=2.3
+dnsrecon>=1.2

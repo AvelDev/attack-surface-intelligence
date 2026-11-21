@@ -32,6 +32,28 @@ CREATE TABLE IF NOT EXISTS findings(
   title TEXT NOT NULL, source TEXT NOT NULL, detail TEXT NOT NULL DEFAULT '',
   fix TEXT NOT NULL DEFAULT ''
 );
+CREATE TABLE IF NOT EXISTS schedules(
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  target TEXT NOT NULL UNIQUE,
+  nuclei INTEGER NOT NULL DEFAULT 0,
+  interval_hours INTEGER NOT NULL,
+  enabled INTEGER NOT NULL DEFAULT 1,
+  created REAL NOT NULL,
+  last_run REAL,
+  next_run REAL NOT NULL
+);
+CREATE TABLE IF NOT EXISTS settings(
+  key TEXT PRIMARY KEY, value TEXT NOT NULL
+);
+CREATE TABLE IF NOT EXISTS alerts(
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  scan_id INTEGER NOT NULL,
+  target TEXT NOT NULL,
+  level TEXT NOT NULL,
+  message TEXT NOT NULL,
+  created REAL NOT NULL,
+  read INTEGER NOT NULL DEFAULT 0
+);
 """
 
 
@@ -50,5 +72,13 @@ def init():
     os.makedirs(os.path.dirname(DB_PATH), exist_ok=True)
     with conn() as c:
         c.executescript(SCHEMA)
+        try:  # migracja: tryb dokładny w harmonogramach
+            c.execute("ALTER TABLE schedules ADD COLUMN deep INTEGER NOT NULL DEFAULT 0")
+        except sqlite3.OperationalError:
+            pass
+        try:
+            os.chmod(DB_PATH, 0o600)  # w bazie leżą klucze API
+        except OSError:
+            pass
         c.execute("UPDATE scans SET status='failed', stage='przerwany (restart)' "
                   "WHERE status IN ('queued','running')")

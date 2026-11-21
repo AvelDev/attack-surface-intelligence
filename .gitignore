@@ -5,3 +5,11 @@ data/
 __pycache__/
 .venv/
 .env
+
+frontend/node_modules/
+
+# lokalne narzędzia asystentów AI (nie są częścią aplikacji)
+.agents/
+.claude/
+.impeccable/
+skills-lock.json

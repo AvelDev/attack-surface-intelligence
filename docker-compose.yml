@@ -1,0 +1,19 @@
+# docker compose up --build   ->   http://127.0.0.1:8000
+# Port jest wystawiony tylko na localhost hosta. API uruchamia skany i przechowuje klucze: nie wystawiaj go publicznie bez uwierzytelnienia.
+services:
+  asi:
+    build: .
+    ports:
+      - "127.0.0.1:8000:8000"
+    volumes:
+      - asi-data:/data
+    environment:
+      # opcjonalnie: klucze ustawione tu mają pierwszeństwo przed zapisanymi w Ustawieniach
+      # ASI_NVD_API_KEY: ""
+      # ASI_SHODAN_API_KEY: ""
+      # ASI_HIBP_API_KEY: ""
+      # ASI_WEBHOOK_URL: ""
+      ASI_ALLOWED_TARGETS: "${ASI_ALLOWED_TARGETS:-}"
+    restart: unless-stopped
+volumes:
+  asi-data:

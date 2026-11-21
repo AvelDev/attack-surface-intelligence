@@ -12,6 +12,7 @@ import shutil
 import socket
 import ssl
 import subprocess
+import sys
 import tempfile
 import threading
 import time
@@ -21,12 +22,17 @@ import xml.etree.ElementTree as ET
 from concurrent.futures import ThreadPoolExecutor
 from urllib.parse import urlparse
 
-from . import db
+from . import alerts, checks, db, intel, tools_ext
+from .proc import jsonl, run_cmd
 
-os.environ["PATH"] = os.environ.get("PATH", "") + os.pathsep + os.path.expanduser("~/go/bin")
+# ~/go/bin (narzędzia Go) oraz katalog bieżącego interpretera (narzędzia pip z venv: sslyze, wafw00f, dnsrecon)
+os.environ["PATH"] = os.pathsep.join([os.environ.get("PATH", ""), os.path.expanduser("~/go/bin"),
+                                      os.path.dirname(sys.executable)])
 
 SEM = threading.Semaphore(1)  # skany idą w kolejce, po jednym naraz
-TOOLS = ["subfinder", "dnsx", "naabu", "nmap", "httpx", "nuclei"]
+TOOLS = ["subfinder", "dnsx", "naabu", "nmap", "httpx", "nuclei",
+         "amass", "assetfinder", "dnsrecon", "sslyze", "testssl", "wafw00f", "whatweb", "katana", "gau", "waybackurls"]
+TOOL_BIN = {"testssl": ("testssl.sh", "testssl")}  # nazwa narzędzia -> możliwe nazwy pliku
 SEV_W = {"critical": 40, "high": 20, "medium": 8, "low": 3, "info": 0}
 DOMAIN_RE = re.compile(r"^(?=.{1,253}$)([a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z]{2,63}$")
 ALLOW_PRIVATE = os.environ.get("ASI_ALLOW_PRIVATE") == "1"
@@ -86,7 +92,7 @@ def is_ip(t):
 def tool_status():
     out = {}
     for n in TOOLS:
-        p = shutil.which(n)
+        p = next(filter(None, (shutil.which(b) for b in TOOL_BIN.get(n, (n,)))), None)
         ok = bool(p)
         if n == "httpx" and p:  # odróżnij httpx ProjectDiscovery od CLI pythonowego httpx
             try:
@@ -138,6 +144,14 @@ class Ctx:
             c.execute("INSERT INTO findings VALUES(?,?,?,?,?,?,?)",
                       (self.id, asset, sev, title, source, detail[:1000], fix))
 
+    def add_tech(self, aid, tech):
+        with db.conn() as c:
+            r = c.execute("SELECT data FROM assets WHERE scan_id=? AND id=?", (self.id, aid)).fetchone()
+            if r:
+                d = json.loads(r["data"])
+                d["tech"] = sorted(set(d.get("tech", [])) | set(tech))
+                c.execute("UPDATE assets SET data=? WHERE scan_id=? AND id=?", (json.dumps(d), self.id, aid))
+
     def finish(self, status):
         with db.conn() as c:
             sev = [r["severity"] for r in c.execute(
@@ -153,38 +167,13 @@ def risk_score(severities):
     return min(100, int(100 * (1 - 0.985 ** total)))
 
 
-def run_cmd(ctx, cmd, timeout, stdin=None):
-    ctx.log("$ " + " ".join(cmd))
-    try:
-        r = subprocess.run(cmd, input=stdin, capture_output=True, text=True, timeout=timeout)
-        if r.returncode != 0 and not r.stdout:
-            ctx.log(f"  kod wyjścia {r.returncode}: {r.stderr.strip()[-300:]}")
-        return r.stdout
-    except subprocess.TimeoutExpired as e:
-        ctx.log("  przekroczono limit czasu")
-        o = e.stdout
-        return o.decode(errors="ignore") if isinstance(o, bytes) else (o or "")
-    except Exception as e:  # noqa: BLE001
-        ctx.log(f"  błąd: {e}")
-        return ""
-
-
-def jsonl(text):
-    for line in text.splitlines():
-        line = line.strip()
-        if line.startswith("{"):
-            try:
-                yield json.loads(line)
-            except json.JSONDecodeError:
-                pass
-
-
 # ---------- etap 1: subdomeny ----------
 def enum_subdomains(ctx, root, tools):
     found = set()
     if tools["subfinder"]["installed"]:
         out = run_cmd(ctx, ["subfinder", "-d", root, "-silent", "-timeout", "20", "-max-time", "3"], 240)
         found |= {x.strip().lower() for x in out.splitlines() if x.strip()}
+    found |= tools_ext.more_subdomains(ctx, root, tools, bool(ctx.opts.get("deep")))
     try:  # źródło pasywne: Certificate Transparency
         url = f"https://crt.sh/?q=%25.{root}&output=json"
         ctx.log(f"GET {url}")
@@ -422,6 +411,75 @@ SEC_HEADERS = [("content-security-policy", "Brak nagłówka Content-Security-Pol
                 "Dodaj X-Frame-Options lub CSP frame-ancestors.")]
 
 
+MAX_EXTRA_WEBS = 15  # limit hostów dla kontroli plików/TLS, żeby skan nie rozrastał się w nieskończoność
+
+
+def extra_checks(ctx, root, target, ip_target, web_items, tools):
+    """Etap: ukryte pliki, stary TLS, security.txt, SPF/DMARC. Błąd jednej kontroli nie przerywa skanu."""
+    ctx.stage("Dodatkowe kontrole (pliki, poczta, szyfrowanie)")
+    deep = bool(ctx.opts.get("deep"))
+    items = web_items[:MAX_EXTRA_WEBS]
+    tls_set = [i for i in items if i[1].startswith("https://")][:MAX_EXTRA_WEBS if deep else 3]
+    if len(web_items) > len(items):
+        ctx.log(f"Dodatkowe kontrole tylko dla {len(items)} z {len(web_items)} usług WWW")
+
+    def per_web(item):
+        wid, url, host, port = item
+        found = []
+        try:
+            found += checks.sensitive_files(url)
+            if item in tls_set:
+                r = tools_ext.tls_audit(ctx, host, port, tools, deep)
+                found += checks.legacy_tls(host, port) if r is None else r
+            if host == target and not ip_target and url.startswith("https://"):
+                found += checks.security_txt(url)
+        except Exception as e:  # noqa: BLE001
+            ctx.log(f"  kontrola {url}: {e}")
+        return wid, found
+
+    with ThreadPoolExecutor(4) as ex:
+        for wid, found in ex.map(per_web, items):
+            for sev, title, detail, fix in found:
+                ctx.finding(wid, sev, title, "builtin", detail, fix)
+
+    if not ip_target:
+        found, err = checks.email_auth(target)
+        if err:
+            ctx.log("  " + err)
+        for sev, title, detail, fix in found:
+            ctx.finding(root, sev, title, "builtin", detail, fix)
+
+
+def web_intel(ctx, root, target, ip_target, web_items, tools):
+    """Etap: WAF, technologie oraz historyczne/crawlowane adresy URL (w trybie deep także crawling)."""
+    ctx.stage("Analiza adresów URL i technologii")
+    deep = bool(ctx.opts.get("deep"))
+    items = web_items[:MAX_EXTRA_WEBS if deep else 5]
+
+    def one(item):
+        try:
+            return item, tools_ext.waf_and_tech(ctx, item[1], tools, deep)
+        except Exception as e:  # noqa: BLE001
+            ctx.log(f"  WAF/technologie {item[1]}: {e}")
+            return item, (None, [])
+
+    with ThreadPoolExecutor(4) as ex:
+        for (wid, url, host, port), (waf, tech) in ex.map(one, items):
+            if tech:
+                ctx.add_tech(wid, tech)
+            if waf:
+                ctx.finding(wid, "info", f"Wykryto zaporę aplikacyjną (WAF): {waf}", "builtin", url, "Brak działań, to dobre zabezpieczenie.")
+            elif host == target:
+                ctx.finding(wid, "info", "Nie wykryto zapory aplikacyjnej (WAF)", "builtin", url,
+                            "Rozważ WAF (usługa dostawcy hostingu lub ModSecurity) jako dodatkową warstwę ochrony.")
+    if not ip_target:
+        try:
+            urls = tools_ext.discover_urls(ctx, target, [w[1] for w in web_items], tools, deep)
+            tools_ext.analyze_urls(ctx, urls, {w[0] for w in web_items}, root)
+        except Exception as e:  # noqa: BLE001
+            ctx.log(f"  analiza adresów przerwana: {e}")
+
+
 # ---------- główny pipeline ----------
 def pipeline(ctx):
     t, tools = ctx.target, tool_status()
@@ -435,6 +493,8 @@ def pipeline(ctx):
         ctx.stage("Enumeracja subdomen")
         names = sorted(enum_subdomains(ctx, t, tools) | {t})
         ctx.log(f"Znaleziono nazw: {len(names)}")
+        for sev, title, detail, fix in tools_ext.zone_transfer(ctx, t, tools):
+            ctx.finding(root, sev, title, "builtin", detail, fix)
         ctx.stage("Rozwiązywanie DNS")
         ip_of, cnames = resolve(ctx, names, tools)
         for n in names:
@@ -482,6 +542,7 @@ def pipeline(ctx):
                     cand[url] = (host, ip, p["port"])
     webs = probe_web(ctx, sorted(cand), tools)
     ctx.log(f"Odpowiadające usługi HTTP: {len(webs)}")
+    web_items = []
     for w in webs:
         url = (w["url"] or "").rstrip("/")
         meta = cand.get(url) or cand.get(w["url"])
@@ -490,6 +551,7 @@ def pipeline(ctx):
         host, ip, port = meta
         hdr = w.pop("headers", {})
         wid = ctx.asset("web", url, w)
+        web_items.append((wid, url, host, port))
         ctx.edge(port_id.get((ip, port), root if host == t else f"subdomain:{host}"), wid)
         st = w["status"]
         if url.startswith("http://") and 200 <= st < 300:
@@ -505,12 +567,23 @@ def pipeline(ctx):
             for h, title, sev, fix in SEC_HEADERS:
                 if h not in hdr and not (h == "x-frame-options" and "frame-ancestors" in hdr.get("content-security-policy", "")):
                     ctx.finding(wid, sev, title, "builtin", url, fix)
+            if re.search(r"\d+\.\d+", hdr.get("x-powered-by", "")):
+                ctx.finding(wid, "low", "Ujawnienie technologii w nagłówku X-Powered-By", "builtin", hdr["x-powered-by"],
+                            "Usuń nagłówek X-Powered-By (np. expose_php=Off).")
             if re.search(r"\d+\.\d+", w.get("server", "")):
                 ctx.finding(wid, "low", "Ujawnienie wersji oprogramowania w nagłówku Server", "builtin",
                             w["server"], "Ukryj wersję (server_tokens off / ServerTokens Prod).")
         if ADMIN_RE.search(w.get("title", "")) and st < 500:
             ctx.finding(wid, "medium", "Potencjalny panel administracyjny/logowania dostępny publicznie",
                         "builtin", f"{url} - \"{w['title']}\"", "Ogranicz dostęp (VPN, allowlista IP, MFA).")
+
+    extra_checks(ctx, root, t, ip_target, web_items, tools)
+    web_intel(ctx, root, t, ip_target, web_items, tools)
+    ctx.stage("Wywiad zewnętrzny (CVE, wycieki)")
+    try:
+        intel.enrich(ctx, ips, root, t, ip_target)
+    except Exception as e:  # noqa: BLE001
+        ctx.log(f"  wywiad zewnętrzny przerwany: {type(e).__name__}")
 
     if ctx.opts.get("nuclei") and tools["nuclei"]["installed"] and webs:
         ctx.stage("Skan podatności (nuclei)")
@@ -539,6 +612,15 @@ def pipeline(ctx):
                                       else "narzędzie niezainstalowane"))
 
 
+def start_scan(target, opts):
+    """Zakłada rekord skanu i uruchamia go w tle. Zwraca id."""
+    with db.conn() as c:
+        sid = c.execute("INSERT INTO scans(target,opts,created) VALUES(?,?,?)",
+                        (target, json.dumps(opts), time.time())).lastrowid
+    threading.Thread(target=run_scan, args=(sid,), daemon=True).start()
+    return sid
+
+
 def run_scan(scan_id):
     with SEM:
         ctx = Ctx(scan_id)
@@ -547,6 +629,9 @@ def run_scan(scan_id):
                 c.execute("UPDATE scans SET status='running' WHERE id=?", (scan_id,))
             pipeline(ctx)
             ctx.finish("done")
+            alerts.after_scan(scan_id)
         except Exception as e:  # noqa: BLE001
             ctx.log(f"BŁĄD KRYTYCZNY: {e!r}")
             ctx.finish("failed")
+            if ctx.opts.get("schedule_id"):
+                alerts.add(scan_id, ctx.target, "warn", "Automatyczne sprawdzenie nie powiodło się.")
