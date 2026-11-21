@@ -5,6 +5,7 @@ oraz szybki lookup z pamięcią podręczną i fallbackiem bez zależności zewn�
 import ipaddress
 import json
 import urllib.request
+from concurrent.futures import ThreadPoolExecutor
 
 # Cache w pamięci podręcznej procesu
 _GEO_CACHE = {}
@@ -83,3 +84,13 @@ def locate_ip(ip_str):
     }
     _GEO_CACHE[ip_clean] = res
     return res
+
+
+def locate_many(ips):
+    """locate_ip() dla wielu adresów naraz, równolegle - sekwencyjnie każdy
+    nieocache'owany publiczny adres kosztowałby do 1.2s (zapytanie do ip-api.com),
+    co przy skanie z wieloma publicznymi IP zsumowałoby się do dziesiątek sekund."""
+    uniq = list(dict.fromkeys(ips))
+    with ThreadPoolExecutor(min(16, max(1, len(uniq)))) as ex:
+        results = list(ex.map(locate_ip, uniq))
+    return dict(zip(uniq, results))

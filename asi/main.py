@@ -178,6 +178,13 @@ def index():
     return FileResponse(os.path.join(STATIC, "index.html"))
 
 
+@app.get("/command-center")
+def command_center():
+    # Sama strona bez auth (jak "/"), tak jak dotąd - dane lecą przez już zabezpieczone
+    # /api/scans*, które wymagają ważnej sesji; samo HTML nic wrażliwego nie ujawnia.
+    return FileResponse(os.path.join(STATIC, "command_center.html"))
+
+
 @app.get("/api/tools")
 def tools(user: dict = Depends(auth.require("read"))):
     return scanner.tool_status()
@@ -430,60 +437,57 @@ def edit_finding(rowid: int, req: FindingEdit, user: dict = Depends(auth.require
     return {"ok": True}
 
 
+def _threat_map(findings):
+    threat_map = {}
+    for f in findings:
+        curr_sev = threat_map.get(f["asset"], "info")
+        if SEV_ORDER.get(f["severity"], 9) < SEV_ORDER.get(curr_sev, 9):
+            threat_map[f["asset"]] = f["severity"]
+    return threat_map
+
+
 @app.get("/api/scans/{sid}")
 def get_scan(sid: int, user: dict = Depends(auth.require("read"))):
     s, assets, edges, findings = _load(sid)
     s["log"] = "".join(s["log"].splitlines(True)[-400:])
     counts = {k: 0 for k in SEV_ORDER}
-    threat_map = {}
     for f in findings:
         counts[f["severity"]] = counts.get(f["severity"], 0) + 1
-        curr_sev = threat_map.get(f["asset"], "info")
-        if SEV_ORDER.get(f["severity"], 9) < SEV_ORDER.get(curr_sev, 9):
-            threat_map[f["asset"]] = f["severity"]
 
     live_score = scanner.risk_score([f["severity"] for f in findings])
     s["score"] = s["score"] if s["status"] == "done" else live_score
 
-    # Geolokalizacja dla mapy 3D Command Center
-    geo_nodes = []
-    seen_ips = set()
-    for a in assets:
-        ip_val = None
-        if a["kind"] == "ip":
-            ip_val = a["value"]
-        elif a["kind"] == "port":
-            ip_val = a["value"].split(":")[0]
-
-        if ip_val and ip_val not in seen_ips:
-            seen_ips.add(ip_val)
-            g = geo.locate_ip(ip_val)
-            highest_sev = threat_map.get(a["id"], threat_map.get(f"ip:{ip_val}", "low"))
-            geo_nodes.append({
-                "id": a["id"],
-                "ip": ip_val,
-                "lat": g["lat"],
-                "lon": g["lon"],
-                "country": g["country"],
-                "city": g["city"],
-                "is_hq": g.get("is_hq", False),
-                "severity": highest_sev
-            })
-
-    geo_nodes.append({
-        "id": "scanner:hq",
-        "ip": "127.0.0.1",
-        "lat": geo.HQ_KRAKOW["lat"],
-        "lon": geo.HQ_KRAKOW["lon"],
-        "country": "PL",
-        "city": "CBI AGH (Kraków)",
-        "is_hq": True,
-        "severity": "ok"
-    })
-
     return {"scan": s, "assets": assets, "edges": edges, "findings": findings, "counts": counts,
-            "geo_nodes": geo_nodes,
             "diff": _diff(sid, s["target_hash"], assets, findings) if s["status"] == "done" else None}
+
+
+@app.get("/api/scans/{sid}/geo")
+def get_scan_geo(sid: int, user: dict = Depends(auth.require("read"))):
+    """Geolokalizacja dla mapy 3D Command Center - osobny endpoint, bo lookupy IP (sieciowe
+    dla publicznych adresów) nie mogą obciążać głównego pollingu /api/scans/{id} co 2s,
+    którego używa zwykły dashboard i który w ogóle tych danych nie potrzebuje."""
+    _, assets, _, findings = _load(sid)
+    threat_map = _threat_map(findings)
+    ips, seen = [], set()
+    for a in assets:
+        ip_val = a["value"] if a["kind"] == "ip" else (a["value"].split(":")[0] if a["kind"] == "port" else None)
+        if ip_val and ip_val not in seen:
+            seen.add(ip_val)
+            ips.append((a["id"], ip_val))
+
+    geo_map = geo.locate_many([ip for _, ip in ips])  # równolegle, nie sekwencyjnie
+    geo_nodes = []
+    for aid, ip_val in ips:
+        g = geo_map[ip_val]
+        highest_sev = threat_map.get(aid, threat_map.get(f"ip:{ip_val}", "low"))
+        geo_nodes.append({"id": aid, "ip": ip_val, "lat": g["lat"], "lon": g["lon"],
+                          "country": g["country"], "city": g["city"],
+                          "is_hq": g.get("is_hq", False), "severity": highest_sev})
+
+    geo_nodes.append({"id": "scanner:hq", "ip": "127.0.0.1", "lat": geo.HQ_KRAKOW["lat"],
+                      "lon": geo.HQ_KRAKOW["lon"], "country": "PL", "city": "CBI AGH (Kraków)",
+                      "is_hq": True, "severity": "ok"})
+    return {"geo_nodes": geo_nodes}
 
 
 @app.delete("/api/scans/{sid}")

@@ -790,7 +790,10 @@ async function loadScansList() {
 
 async function loadScanData(sid) {
   try {
-    const d = await api('/api/scans/' + sid);
+    // Dwa osobne zapytania: /api/scans/{id} (ten sam endpoint, co polluje zwykły dashboard
+    // co 2s) i /geo (lookupy IP, czasem sieciowe - nie powinny obciążać tamtego pollingu).
+    const [d, geo] = await Promise.all([api('/api/scans/' + sid), api('/api/scans/' + sid + '/geo')]);
+    d.geo_nodes = geo.geo_nodes;
     activeScanData = d;
     updateHUD(d);
     updateGlobeWithScanData(d);
