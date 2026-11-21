@@ -10,6 +10,7 @@ import os
 import re
 import shutil
 import socket
+import sqlite3
 import ssl
 import subprocess
 import tempfile
@@ -87,6 +88,27 @@ def is_ip(t):
         return False
 
 
+_NAABU_SYN_CACHE = {}
+
+
+def _naabu_can_syn(path):
+    """SYN scan (-s s) jest dużo szybszy niż domyślny connect scan (-s c), ale wymaga
+    cap_net_raw na binarce (sudo setcap cap_net_raw,cap_net_admin=eip $(which naabu)) -
+    naabu NIE robi tego automatycznie nawet z uprawnieniami, trzeba podać -s jawnie.
+    Sprawdzane raz (getcap), z bezpiecznym fallbackiem do connect scan, gdy się nie da
+    potwierdzić (getcap niedostępny, brak capability, inny system)."""
+    if path in _NAABU_SYN_CACHE:
+        return _NAABU_SYN_CACHE[path]
+    ok = False
+    try:
+        r = subprocess.run(["getcap", path], capture_output=True, text=True, timeout=5)
+        ok = "cap_net_raw" in r.stdout.lower()
+    except Exception:
+        ok = False
+    _NAABU_SYN_CACHE[path] = ok
+    return ok
+
+
 def tool_status():
     out = {}
     for n in TOOLS:
@@ -100,6 +122,8 @@ def tool_status():
             except Exception:
                 ok = False
         out[n] = {"installed": ok, "path": p if ok else None}
+    if out["naabu"]["installed"]:
+        out["naabu"]["syn"] = _naabu_can_syn(out["naabu"]["path"])
     gs = gvm_scan.status()
     out["openvas"] = {"installed": gs["reachable"], "path": f"{gvm_scan.HOST}:{gvm_scan.PORT}" if gs["configured"] else None}
     out["defectdojo"] = {"installed": defectdojo.configured(), "path": _host_only(defectdojo.get_config()[0])}
@@ -127,6 +151,16 @@ class Ctx:
                             c.execute("SELECT target FROM scan_targets WHERE scan_id=?", (scan_id,))]
         self.target, self.opts, self.created = row["target"], json.loads(row["opts"]), row["created"]
         self._seen_f = set()
+        # Połączenie trwałe na czas skanu dla metod wołanych wyłącznie z głównego wątku
+        # pipeline'u (asset/edge/finding/hosts_*/finish) - otwieranie nowego połączenia +
+        # commit + close przy KAŻDYM pojedynczym assecie/findingu mierzalnie spowalniało
+        # skany na tysiącach hostów. log()/stage() zostają przy db.conn() per-call, bo log()
+        # jest dzielony z wątkiem gvm_scan w tle i ma już własny LOG_LOCK na to.
+        self._conn = sqlite3.connect(db.DB_PATH, timeout=30)
+        self._conn.row_factory = sqlite3.Row
+
+    def close(self):
+        self._conn.close()
 
     def log(self, msg):
         line = time.strftime("%H:%M:%S ") + str(msg)[:600] + "\n"
@@ -145,15 +179,15 @@ class Ctx:
 
     def asset(self, kind, value, data=None):
         aid = f"{kind}:{value}"
-        with db.conn() as c:
-            c.execute("INSERT OR REPLACE INTO assets(scan_id,id,kind,value,data) VALUES(?,?,?,?,?)",
-                      (self.id, aid, kind, value, crypto.enc(json.dumps(data or {}))))
+        self._conn.execute("INSERT OR REPLACE INTO assets(scan_id,id,kind,value,data) VALUES(?,?,?,?,?)",
+                           (self.id, aid, kind, value, crypto.enc(json.dumps(data or {}))))
+        self._conn.commit()
         return aid
 
     def edge(self, src, dst):
         if src != dst:
-            with db.conn() as c:
-                c.execute("INSERT OR IGNORE INTO edges VALUES(?,?,?)", (self.id, src, dst))
+            self._conn.execute("INSERT OR IGNORE INTO edges VALUES(?,?,?)", (self.id, src, dst))
+            self._conn.commit()
 
     def check_time_limit(self):
         limit_m = self.opts.get("time_window_mins")
@@ -165,35 +199,35 @@ class Ctx:
         if key in self._seen_f:
             return
         self._seen_f.add(key)
-        with db.conn() as c:
-            ov = c.execute(
-                "SELECT severity, fix, false_positive FROM finding_overrides WHERE asset=? AND title=?",
-                (asset, title)).fetchone()
-            if ov:
-                sev = ov["severity"]
-                if ov["fix"]:
-                    fix = ov["fix"]
-                if ov["false_positive"]:
-                    sev = "info"
-                    title = f"[False Positive] {title}"
-            c.execute("INSERT INTO findings VALUES(?,?,?,?,?,?,?)",
-                      (self.id, asset, sev, title, source, crypto.enc(detail[:1000]), fix))
+        ov = self._conn.execute(
+            "SELECT severity, fix, false_positive FROM finding_overrides WHERE asset=? AND title=?",
+            (asset, title)).fetchone()
+        if ov:
+            sev = ov["severity"]
+            if ov["fix"]:
+                fix = ov["fix"]
+            if ov["false_positive"]:
+                sev = "info"
+                title = f"[False Positive] {title}"
+        self._conn.execute("INSERT INTO findings VALUES(?,?,?,?,?,?,?)",
+                           (self.id, asset, sev, title, source, crypto.enc(detail[:1000]), fix))
+        self._conn.commit()
 
     def hosts_total(self, n):
-        with db.conn() as c:
-            c.execute("UPDATE scans SET hosts_total=? WHERE id=?", (n, self.id))
+        self._conn.execute("UPDATE scans SET hosts_total=? WHERE id=?", (n, self.id))
+        self._conn.commit()
 
     def hosts_progress(self, done):
-        with db.conn() as c:
-            c.execute("UPDATE scans SET hosts_done=? WHERE id=?", (done, self.id))
+        self._conn.execute("UPDATE scans SET hosts_done=? WHERE id=?", (done, self.id))
+        self._conn.commit()
 
     def finish(self, status):
-        with db.conn() as c:
-            sev = [r["severity"] for r in c.execute(
-                "SELECT severity FROM findings WHERE scan_id=?", (self.id,))]
-            stage_txt = "zakończony" if status == "done" else ("okno czasowe (wstrzymany)" if status == "paused_window" else "błąd")
-            c.execute("UPDATE scans SET status=?, stage=?, score=?, finished=?, duration_s=? WHERE id=?",
-                      (status, stage_txt, risk_score(sev), time.time(), time.time() - self.created, self.id))
+        sev = [r["severity"] for r in self._conn.execute(
+            "SELECT severity FROM findings WHERE scan_id=?", (self.id,))]
+        stage_txt = "zakończony" if status == "done" else ("okno czasowe (wstrzymany)" if status == "paused_window" else "błąd")
+        self._conn.execute("UPDATE scans SET status=?, stage=?, score=?, finished=?, duration_s=? WHERE id=?",
+                           (status, stage_txt, risk_score(sev), time.time(), time.time() - self.created, self.id))
+        self._conn.commit()
 
 
 def risk_score(severities):
@@ -298,8 +332,9 @@ def scan_ports(ctx, ips, tools, rate=None):
     if not ips:
         return result
     if tools["naabu"]["installed"]:
+        scan_type = "s" if _naabu_can_syn(tools["naabu"]["path"]) else "c"
         out = run_cmd(ctx, ["naabu", "-list", "/dev/stdin", "-top-ports", "100", "-rate", str(rate),
-                            "-s", "c", "-silent", "-json"], 600, stdin="\n".join(ips))
+                            "-s", scan_type, "-silent", "-json"], 600, stdin="\n".join(ips))
         for j in jsonl(out):
             ip, port = j.get("ip") or j.get("host"), j.get("port")
             if ip in result and port:
@@ -433,6 +468,45 @@ class _NoRedirect(urllib.request.HTTPRedirectHandler):
         return None
 
 
+TECH_HEADER_HINTS = [
+    ("server", "nginx", "Nginx"), ("server", "apache", "Apache"), ("server", "cloudflare", "Cloudflare"),
+    ("server", "microsoft-iis", "IIS"), ("server", "gunicorn", "Gunicorn"), ("server", "litespeed", "LiteSpeed"),
+    ("x-powered-by", "php", "PHP"), ("x-powered-by", "asp.net", "ASP.NET"), ("x-powered-by", "express", "Express"),
+]
+TECH_COOKIE_HINTS = [
+    ("phpsessid", "PHP"), ("jsessionid", "Java/JSP"), ("laravel_session", "Laravel"),
+    ("wordpress_", "WordPress"), ("ci_session", "CodeIgniter"), ("django", "Django"),
+]
+TECH_BODY_HINTS = [
+    ("wp-content", "WordPress"), ("wp-includes", "WordPress"), ("joomla!", "Joomla"),
+    ("drupal.settings", "Drupal"), ("/sites/default/", "Drupal"), ("cdn.shopify.com", "Shopify"),
+    ("__next_data__", "Next.js"), ("ng-version", "Angular"), ("data-reactroot", "React"),
+]
+GENERATOR_RE = re.compile(r'<meta[^>]+name=["\']generator["\'][^>]+content=["\']([^"\']+)', re.I)
+
+
+def detect_tech(headers, body):
+    """Proste, bezpieczne wykrywanie technologii/CMS po nagłówkach i treści strony (pkt 6
+    specyfikacji) - używane tylko w fallbacku bez httpx (ProjectDiscovery), który ma własny
+    -tech-detect. Wyłącznie pasywna detekcja obecności, zgodnie z duchem modułu sygnatur."""
+    found = set()
+    for h, needle, name in TECH_HEADER_HINTS:
+        if needle in headers.get(h, "").lower():
+            found.add(name)
+    cookie = headers.get("set-cookie", "").lower()
+    for needle, name in TECH_COOKIE_HINTS:
+        if needle in cookie:
+            found.add(name)
+    low_body = (body or "").lower()
+    for needle, name in TECH_BODY_HINTS:
+        if needle in low_body:
+            found.add(name)
+    m = GENERATOR_RE.search(body or "")
+    if m:
+        found.add(m.group(1).strip()[:60])
+    return sorted(found)
+
+
 def http_probe(url):
     ctxt = ssl.create_default_context()
     ctxt.check_hostname, ctxt.verify_mode = False, ssl.CERT_NONE
@@ -449,7 +523,7 @@ def http_probe(url):
     h = {k.lower(): v for k, v in r.headers.items()}
     return {"url": url, "status": r.status if hasattr(r, "status") else r.code,
             "title": re.sub(r"\s+", " ", m.group(1)).strip()[:120] if m else "",
-            "server": h.get("server", ""), "tech": [], "headers": h, "body": body[:20000]}
+            "server": h.get("server", ""), "tech": detect_tech(h, body), "headers": h, "body": body[:20000]}
 
 
 def probe_web(ctx, urls, tools):
@@ -658,3 +732,5 @@ def run_scan(scan_id):
         except Exception as e:  # noqa: BLE001
             ctx.log(f"BŁĄD KRYTYCZNY: {e!r}")
             ctx.finish("failed")
+        finally:
+            ctx.close()
