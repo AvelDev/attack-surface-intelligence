@@ -93,18 +93,21 @@ _NAABU_SYN_CACHE = {}
 
 def _naabu_can_syn(path):
     """SYN scan (-s s) jest dużo szybszy niż domyślny connect scan (-s c), ale wymaga
-    cap_net_raw na binarce (sudo setcap cap_net_raw,cap_net_admin=eip $(which naabu)) -
-    naabu NIE robi tego automatycznie nawet z uprawnieniami, trzeba podać -s jawnie.
-    Sprawdzane raz (getcap), z bezpiecznym fallbackiem do connect scan, gdy się nie da
-    potwierdzić (getcap niedostępny, brak capability, inny system)."""
+    cap_net_raw - naabu NIE robi tego automatycznie nawet z uprawnieniami, trzeba podać -s
+    jawnie. Dwie drogi do tej capability: setcap na binarce (WSL/Kali, zob.
+    scripts/install_tools.sh) albo root w kontenerze Docker z cap_add: [NET_RAW, NET_ADMIN]
+    (wtedy getcap na pliku nic nie pokaże, bo capability jest przyznana procesowi przez
+    Dockera, nie plikowi - stąd dodatkowy check na euid). Bezpieczny fallback do connect
+    scan, gdy żadnego z tego nie da się potwierdzić."""
     if path in _NAABU_SYN_CACHE:
         return _NAABU_SYN_CACHE[path]
-    ok = False
-    try:
-        r = subprocess.run(["getcap", path], capture_output=True, text=True, timeout=5)
-        ok = "cap_net_raw" in r.stdout.lower()
-    except Exception:
-        ok = False
+    ok = hasattr(os, "geteuid") and os.geteuid() == 0
+    if not ok:
+        try:
+            r = subprocess.run(["getcap", path], capture_output=True, text=True, timeout=5)
+            ok = "cap_net_raw" in r.stdout.lower()
+        except Exception:
+            ok = False
     _NAABU_SYN_CACHE[path] = ok
     return ok
 

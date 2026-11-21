@@ -4,7 +4,21 @@ Web UI (FastAPI + vanilla JS) orkiestrujące narzędzia z Kali/Ubuntu: subfinder
 Brakujące narzędzie zastępuje fallback w czystym Pythonie. Wynik: graf zasobów, ustalenia z zaleceniami, wynik ryzyka 0-100,
 diff względem poprzedniego skanu tego samego celu oraz raport HTML.
 
-## Uruchomienie (Ubuntu / WSL)
+## Uruchomienie - Docker (zalecane)
+Jedna komenda, bez WSL/Kali/ręcznej instalacji `go install` - wszystkie narzędzia
+(nmap, subfinder, dnsx, naabu, httpx, nuclei) są wbudowane w obraz.
+
+    docker compose up -d --build
+    docker compose logs asi   # tu jest hasło pierwszego admina, wypisane raz przy starcie
+    # -> http://localhost:8000
+
+`network_mode: host` w `docker-compose.yml` wymaga natywnego Dockera na Linuksie (jedyny
+sposób, żeby kontener widział realną sieć LAN do skanowania). Na Docker Desktop
+(Windows/Mac) usuń tę linię i odkomentuj `ports: ["8000:8000"]` - skanowanie będzie wtedy
+ograniczone do tego, co widoczne z wirtualnej maszyny Docker Desktop. Zmienne środowiskowe
+(sekcje niżej) ustaw przez plik `.env` obok `docker-compose.yml` albo `environment:` w pliku.
+
+## Uruchomienie - ręczne (Ubuntu / WSL, bez Dockera)
     bash scripts/install_tools.sh   # nmap + narzędzia ProjectDiscovery (go install)
     bash run.sh                     # http://127.0.0.1:8000
 

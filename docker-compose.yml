@@ -1,0 +1,37 @@
+# Uruchomienie: docker compose up -d --build
+# Potem: http://localhost:8000 (hasło pierwszego admina w logu - docker compose logs asi)
+#
+# network_mode: host wymaga Linuksa (natywny Docker Engine) - tylko wtedy kontener widzi
+# realną sieć hosta tak, jak potrzebuje do SYN scan / odkrywania sieci LAN. Na Docker Desktop
+# (Windows/Mac) usuń network_mode: host i odkomentuj "ports" niżej - skanowanie będzie
+# ograniczone do tego, co widać z wirtualnej maszyny Docker Desktop.
+services:
+  asi:
+    build: .
+    image: attack-surface-intelligence:latest
+    container_name: asi
+    network_mode: host
+    # ports:
+    #   - "8000:8000"
+    cap_drop: ["ALL"]
+    cap_add: ["NET_RAW", "NET_ADMIN"]  # wymagane do SYN scan (naabu) i wykrywania alive hostów
+    restart: unless-stopped
+    volumes:
+      - asi-data:/data
+      - asi-nuclei-templates:/root/nuclei-templates
+    environment:
+      PYTHONUNBUFFERED: "1"
+      ASI_ALLOWED_TARGETS: "${ASI_ALLOWED_TARGETS:-}"
+      ASI_ALLOW_PRIVATE: "${ASI_ALLOW_PRIVATE:-}"
+      ASI_MAX_TARGETS: "${ASI_MAX_TARGETS:-20000}"
+      ASI_MAX_WORKERS: "${ASI_MAX_WORKERS:-4}"
+      ASI_SCAN_RATE: "${ASI_SCAN_RATE:-300}"
+      ASI_COOKIE_SECURE: "${ASI_COOKIE_SECURE:-0}"
+      ASI_DEFECTDOJO_URL: "${ASI_DEFECTDOJO_URL:-}"
+      ASI_DEFECTDOJO_API_KEY: "${ASI_DEFECTDOJO_API_KEY:-}"
+      ASI_GVM_HOST: "${ASI_GVM_HOST:-}"
+      ASI_GVM_PASSWORD: "${ASI_GVM_PASSWORD:-}"
+
+volumes:
+  asi-data:
+  asi-nuclei-templates:

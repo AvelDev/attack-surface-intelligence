@@ -6,9 +6,10 @@ czas, stan ekranu i tekst do powiedzenia, więc da się przyciąć do 2 minut (s
 bloki oznaczone **[rdzeń]**) albo rozciągnąć do 5+ minut (wszystkie bloki).
 
 **Ważne:** ten dokument opisuje wyłącznie funkcje, które faktycznie działają w
-kodzie na dzień pisania (branch `babunia`). Poprzednia wersja tego scenariusza
-wspominała integrację z Shodan/CISA KEV/NVD oraz harmonogram cyklicznych skanów
-z powiadomieniami webhook - **żadne z tych dwóch nie istnieje w kodzie**, więc
+kodzie na dzień pisania (branch `babunia`). Harmonogram cyklicznych skanów (okno
+czasowe + częstotliwość) **już działa** - poprzednia wersja tego scenariusza go
+wykreślała, teraz jest odwrotnie: warto go pokazać. Integracja z Shodan/CISA
+KEV/NVD z bardzo starej wersji pitcha nadal **nie istnieje w kodzie**, więc
 zostały usunięte stąd, żeby nikt nie obiecał jury czegoś, czego nie da się pokazać.
 
 ---
@@ -127,6 +128,27 @@ Komendy do narzędzi skanujących idą bez powłoki systemowej, więc nie ma
 command injection, a moduł własnych sygnatur ma wbudowaną ochronę przed SSRF i
 przed złośliwymi wzorcami regex, które mogłyby zawiesić skan."
 
+### Blok L - Harmonogram **[rozszerzenie, ~15 s]**
+**Ekran:** modal "Harmonogram" z listy skanów.
+**Tekst:** "Skan można ustawić jako cykliczny - interwał godzinowy i okno czasowe,
+w którym ma się zmieścić. Jeśli skan nie zdąży w oknie, zatrzymuje się i wraca
+w kolejnym terminie, zamiast ciągnąć się w nieskończoność poza wyznaczony czas."
+
+### Blok M - Command Center **[rozszerzenie/wow-moment, ~20 s]**
+**Ekran:** `/command-center` (link w nagłówku głównego dashboardu).
+**Co robisz:** przełączasz się z widoku analityka, pokazujesz obracający się
+globus z połączeniami do skanowanych hostów, panel trendu ryzyka.
+**Tekst:** "To ten sam skan, inny widok - dla sali konferencyjnej, nie dla
+codziennej pracy analityka. Globus pokazuje geograficzny rozkład celów i
+ustaleń, a panel po lewej - trend oceny ryzyka tego celu w czasie, z tych
+samych danych co zakładka Zmiany."
+
+### Blok N - Uruchomienie przez Docker **[opcjonalnie, jeśli pytają o wdrożenie, ~15 s]**
+**Tekst (bez live demo, chyba że jest czas na drugi laptop):** "Całość da się
+postawić jedną komendą - `docker compose up -d --build` - ze wszystkimi
+narzędziami skanującymi wbudowanymi w obraz. Nie trzeba WSL, Kali ani ręcznej
+instalacji niczego - to bezpośrednio adresuje kryterium łatwości uruchomienia."
+
 ### Blok K - Zakończenie **[rdzeń, ~10 s]**
 **Tekst:** "Jedno narzędzie: discovery na dużą skalę, priorytetyzacja, co zmieniło
 się od ostatniego razu, role dostępu i integracja z DefectDojo. Dziękuję."
@@ -139,7 +161,8 @@ się od ostatniego razu, role dostępu i integracja z DefectDojo. Dziękuję."
 |---|---|
 | ~2 min (rdzeń) | A, C, E, F, H, K |
 | ~3 min | A, B, C, E, F, H, K |
-| ~5 min (pełne) | A, B, C, D, E, F, G, H, I, J, K |
+| ~5 min (pełne) | A, B, C, D, E, F, G, H, I, J, L, M, K |
+| ~6+ min / pytania o wdrożenie | pełne + N |
 
 ---
 
@@ -160,5 +183,5 @@ się od ostatniego razu, role dostępu i integracja z DefectDojo. Dziękuję."
   bez realnych, obcych adresów (zgoda właściciela!).
 - Nie włączaj nuclei/OpenVAS w krótkim demo - za wolne, generują dużo ruchu.
 - Nie pokazuj widzowi wygenerowanego hasła admina ani kluczy API (DefectDojo) na ekranie.
-- Nie obiecuj funkcji, których nie ma w kodzie (harmonogram cyklicznych skanów,
-  Shodan/CISA KEV/NVD) - jeśli ktoś z jury zapyta, powiedz wprost, że to na roadmapie.
+- Nie obiecuj integracji z Shodan/CISA KEV/NVD - jej nie ma w kodzie; jeśli ktoś
+  z jury zapyta, powiedz wprost, że to na roadmapie.
