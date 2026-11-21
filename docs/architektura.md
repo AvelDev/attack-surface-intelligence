@@ -7,11 +7,13 @@ wyboru stacku zamiast sugerowanego Go/Rust/C++ - patrz §7).
 ## 1. Architektura
 
 ```
-przeglądarka (static/index.html, static/command_center.html, vanilla JS)
+przeglądarka: panel React (frontend/ → frontend/dist, serwowany pod /)
+             + stare UI (static/, vanilla JS, pod /legacy i /command-center)
         │ HTTP + ciasteczko sesji
         ▼
 FastAPI (asi/main.py) ── auth.py (sesje, role) ── crypto.py (Fernet)
         │                                              │
+        ├─ dashboard.py   (agregat panelu: zmiany, flapping, kolejka, mapa - GET /api/dashboard)
         ├─ _scheduler_loop() (wątek w tle, harmonogramy cykliczne)
         ▼                                              ▼
   scanner.py (orkiestracja pipeline'u)         SQLite (asi/db.py, WAL)
@@ -87,6 +89,19 @@ wznowienie (ponowny przebieg) następuje przy najbliższym `next_run`.
 | `finding_overrides` | triage (zmiana wagi/zalecenia, oznaczenie false-positive) kluczowany po `(asset, title)`, nie po skanie - przetrwa kolejne przebiegi (pkt 14 specyfikacji) |
 | `settings` | konfiguracja z UI zamiast tylko zmiennych środowiskowych (dziś: URL/klucz DefectDojo, klucz szyfrowany) |
 | `schedules` | harmonogramy cykliczne: cel, interwał, okno czasowe |
+| `triage` | decyzja z kolejki panelu (`open`/`ok`/`accepted`/`false_positive`) po `(asset, key)` - przetrwa kolejne przebiegi; `false_positive` zapisuje też override findingu |
+| `range_notes` | notatka do zakresu (`target_hash`), np. właściciel, okno serwisowe |
+
+Kolumna `scans.stop_requested` to ręczne zatrzymanie: `Ctx.check_time_limit()` sprawdza ją na
+każdym etapie i kończy skan stanem `stopped` (wyniki częściowe zostają).
+
+**Agregat panelu** (`asi/dashboard.py`, `GET /api/dashboard?range=&scan=`): dla każdego zakresu
+porównuje ostatni przebieg z poprzednim (nowe / zniknięte / zmienione pola usług), na historii do
+10 przebiegów liczy flapping i potwierdzone offline, składa porty pod host i web pod port (jedna
+zmiana = jeden wiersz kolejki), podaje pewność jako k/N przebiegów, w których zasób był widoczny.
+Mapa: hosty pogrupowane w /24; zakres do 16 hostów dostaje pasma portów. Akcje: `POST /api/triage`,
+`PUT /api/ranges/{id}/note`, `POST /api/ranges/{id}/run`, `POST /api/scans/{id}/stop`,
+`POST /api/defectdojo/export` - każda z kontrolą roli.
 
 **Porównanie dwóch skanów** (`main._diff`): szuka ostatniego `done` skanu z tym
 samym `target_hash`, porównuje zbiory ID zasobów i par (asset, tytuł) findingów -

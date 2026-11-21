@@ -77,6 +77,21 @@ CREATE TABLE IF NOT EXISTS settings(
   key TEXT PRIMARY KEY,
   value TEXT NOT NULL
 );
+CREATE TABLE IF NOT EXISTS triage(
+  asset TEXT NOT NULL,
+  key TEXT NOT NULL,
+  status TEXT NOT NULL,
+  note TEXT NOT NULL DEFAULT '',
+  username TEXT NOT NULL DEFAULT '',
+  updated REAL NOT NULL,
+  PRIMARY KEY(asset, key)
+);
+CREATE TABLE IF NOT EXISTS range_notes(
+  target_hash TEXT PRIMARY KEY,
+  note TEXT NOT NULL DEFAULT '',
+  username TEXT NOT NULL DEFAULT '',
+  updated REAL NOT NULL
+);
 CREATE TABLE IF NOT EXISTS schedules(
   id INTEGER PRIMARY KEY AUTOINCREMENT,
   target TEXT NOT NULL,
@@ -109,6 +124,7 @@ _SCANS_MIGRATIONS = (
     "hosts_total INTEGER NOT NULL DEFAULT 0",
     "hosts_done INTEGER NOT NULL DEFAULT 0",
     "duration_s REAL",
+    "stop_requested INTEGER NOT NULL DEFAULT 0",
 )
 
 

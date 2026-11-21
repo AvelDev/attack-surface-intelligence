@@ -1,0 +1,76 @@
+/* ASI · tokeny. Ciemny domyślnie (praca przy biurku, często po zmroku w SOC), jasny jako
+   odwrócenie atramentu na papier. Pomarańcz = zmiana, czerwień = krytyczne; nic więcej. */
+:root,
+:root[data-theme="dark"] {
+  --bg: #050607;
+  --bg-2: #0a0c0e;          /* szyna, pasek, druga warstwa */
+  --bg-3: #111417;          /* hover, wiersz wybrany */
+  --ink: #dadde0;
+  --ink-2: #a4abb2;
+  --ink-3: #80878f;         /* meta; >= 4.5:1 na --bg */
+  --line: #23272c;
+  --line-2: #363b41;
+  --dot: #2a2f35;           /* adres bez hosta */
+  --dot-live: #b9bec3;      /* żywy host */
+  --change: #ff9a2e;
+  --change-ink: #ffb05c;
+  --change-wash: rgba(255, 154, 46, 0.12);
+  --crit: #ff5c61;
+  --crit-wash: rgba(255, 92, 97, 0.12);
+  --ok: #8fd0a8;
+  --focus: #e8ebee;
+  --tag-bg: #dadde0;
+  --tag-ink: #050607;
+  --shadow: 0 12px 32px rgba(0, 0, 0, 0.55);
+  color-scheme: dark;
+}
+
+:root[data-theme="light"] {
+  --bg: #f2f2ef;
+  --bg-2: #e8e8e4;
+  --bg-3: #dfdfda;
+  --ink: #121416;
+  --ink-2: #3b4147;
+  --ink-3: #565d64;
+  --line: #cfd1cc;
+  --line-2: #b3b6b1;
+  --dot: #cdd0cb;
+  --dot-live: #2b3036;
+  --change: #c46200;
+  --change-ink: #994c00;
+  --change-wash: rgba(196, 98, 0, 0.1);
+  --crit: #b4232a;
+  --crit-wash: rgba(180, 35, 42, 0.08);
+  --ok: #276a42;
+  --focus: #111417;
+  --tag-bg: #121416;
+  --tag-ink: #f2f2ef;
+  --shadow: 0 12px 28px rgba(18, 20, 22, 0.16);
+  color-scheme: light;
+}
+
+:root {
+  --font-ui: "Geist Sans", ui-sans-serif, system-ui, sans-serif;
+  --font-mono: "Geist Mono", ui-monospace, "Cascadia Mono", monospace;
+  --font-display: "Saira Condensed", "Geist Sans", sans-serif;
+
+  --fs-11: 0.75rem;   /* 12px: meta, nagłówki tabel */
+  --fs-13: 0.8125rem; /* 13px: tekst UI */
+  --fs-14: 0.875rem;
+  --fs-16: 1rem;
+  --fs-20: 1.25rem;
+  --fs-24: 1.5rem;    /* tytuły modułów (display) */
+  --fs-48: 3rem;      /* liczba zmian */
+
+  --s-1: 4px;
+  --s-2: 8px;
+  --s-3: 12px;
+  --s-4: 16px;
+  --s-5: 24px;
+  --s-6: 32px;
+
+  --rail: 64px;
+  --top: 52px;
+  --tick: 32px;
+  --ease: cubic-bezier(0.16, 1, 0.3, 1);
+}

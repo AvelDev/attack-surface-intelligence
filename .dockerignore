@@ -16,3 +16,7 @@ deploy/
 scripts/
 rules/
 README.md
+frontend/node_modules/
+frontend/dist/
+lab/
+.impeccable/

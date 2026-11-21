@@ -1,0 +1,679 @@
+{
+  "schemaVersion": 2,
+  "generatedAt": "2026-11-21T16:59:03.896Z",
+  "title": "Design System: ASI · Attack Surface Intelligence",
+  "extensions": {
+    "colorMeta": {
+      "bg": {
+        "role": "neutral",
+        "displayName": "Czerń Ekranu",
+        "tonalRamp": [
+          "#0b0d0f",
+          "#1a1d21",
+          "#2e3237",
+          "#4a5057",
+          "#6b7279",
+          "#949aa0",
+          "#c0c4c8",
+          "#eceeef"
+        ]
+      },
+      "bg-2": {
+        "role": "neutral",
+        "displayName": "Druga Warstwa",
+        "tonalRamp": [
+          "#0b0d0f",
+          "#1a1d21",
+          "#2e3237",
+          "#4a5057",
+          "#6b7279",
+          "#949aa0",
+          "#c0c4c8",
+          "#eceeef"
+        ]
+      },
+      "bg-3": {
+        "role": "neutral",
+        "displayName": "Trzecia Warstwa",
+        "tonalRamp": [
+          "#0b0d0f",
+          "#1a1d21",
+          "#2e3237",
+          "#4a5057",
+          "#6b7279",
+          "#949aa0",
+          "#c0c4c8",
+          "#eceeef"
+        ]
+      },
+      "ink": {
+        "role": "neutral",
+        "displayName": "Jasny Atrament",
+        "tonalRamp": [
+          "#0b0d0f",
+          "#1a1d21",
+          "#2e3237",
+          "#4a5057",
+          "#6b7279",
+          "#949aa0",
+          "#c0c4c8",
+          "#eceeef"
+        ]
+      },
+      "ink-2": {
+        "role": "neutral",
+        "displayName": "Atrament Drugorzędny",
+        "tonalRamp": [
+          "#0b0d0f",
+          "#1a1d21",
+          "#2e3237",
+          "#4a5057",
+          "#6b7279",
+          "#949aa0",
+          "#c0c4c8",
+          "#eceeef"
+        ]
+      },
+      "ink-3": {
+        "role": "neutral",
+        "displayName": "Atrament Meta",
+        "tonalRamp": [
+          "#0b0d0f",
+          "#1a1d21",
+          "#2e3237",
+          "#4a5057",
+          "#6b7279",
+          "#949aa0",
+          "#c0c4c8",
+          "#eceeef"
+        ]
+      },
+      "line": {
+        "role": "neutral",
+        "displayName": "Hairline",
+        "tonalRamp": [
+          "#0b0d0f",
+          "#1a1d21",
+          "#2e3237",
+          "#4a5057",
+          "#6b7279",
+          "#949aa0",
+          "#c0c4c8",
+          "#eceeef"
+        ]
+      },
+      "line-2": {
+        "role": "neutral",
+        "displayName": "Hairline Kontrolek",
+        "tonalRamp": [
+          "#0b0d0f",
+          "#1a1d21",
+          "#2e3237",
+          "#4a5057",
+          "#6b7279",
+          "#949aa0",
+          "#c0c4c8",
+          "#eceeef"
+        ]
+      },
+      "dot": {
+        "role": "neutral",
+        "displayName": "Kropka Pusta",
+        "tonalRamp": [
+          "#0b0d0f",
+          "#1a1d21",
+          "#2e3237",
+          "#4a5057",
+          "#6b7279",
+          "#949aa0",
+          "#c0c4c8",
+          "#eceeef"
+        ]
+      },
+      "dot-live": {
+        "role": "neutral",
+        "displayName": "Kropka Żywa",
+        "tonalRamp": [
+          "#0b0d0f",
+          "#1a1d21",
+          "#2e3237",
+          "#4a5057",
+          "#6b7279",
+          "#949aa0",
+          "#c0c4c8",
+          "#eceeef"
+        ]
+      },
+      "change": {
+        "role": "primary",
+        "displayName": "Sygnałowy Pomarańcz Zmiany",
+        "tonalRamp": [
+          "#2b1500",
+          "#552a00",
+          "#804000",
+          "#ad5700",
+          "#d96f0a",
+          "#ff9a2e",
+          "#ffc48a",
+          "#ffe9d4"
+        ]
+      },
+      "change-ink": {
+        "role": "primary",
+        "displayName": "Atrament Zmiany",
+        "tonalRamp": [
+          "#2b1500",
+          "#552a00",
+          "#804000",
+          "#ad5700",
+          "#d96f0a",
+          "#ff9a2e",
+          "#ffc48a",
+          "#ffe9d4"
+        ]
+      },
+      "crit": {
+        "role": "secondary",
+        "displayName": "Alarmowa Czerwień",
+        "tonalRamp": [
+          "#2a0708",
+          "#540f12",
+          "#80181d",
+          "#ab222a",
+          "#d43a41",
+          "#ff5c61",
+          "#ff9fa2",
+          "#ffe1e2"
+        ]
+      },
+      "ok": {
+        "role": "tertiary",
+        "displayName": "Stonowana Zieleń Statusu",
+        "tonalRamp": [
+          "#0b2416",
+          "#13402a",
+          "#1d5c3c",
+          "#276a42",
+          "#3f8f5f",
+          "#64b383",
+          "#8fd0a8",
+          "#d8f0e1"
+        ]
+      },
+      "focus": {
+        "role": "neutral",
+        "displayName": "Fokus",
+        "tonalRamp": [
+          "#0b0d0f",
+          "#1a1d21",
+          "#2e3237",
+          "#4a5057",
+          "#6b7279",
+          "#949aa0",
+          "#c0c4c8",
+          "#eceeef"
+        ]
+      },
+      "bg-light": {
+        "role": "neutral",
+        "displayName": "Czerń Ekranu (jasny)",
+        "tonalRamp": [
+          "#1a1a18",
+          "#33332f",
+          "#575853",
+          "#80817b",
+          "#a6a7a1",
+          "#c9cac5",
+          "#e1e1dd",
+          "#f6f6f3"
+        ]
+      },
+      "bg-2-light": {
+        "role": "neutral",
+        "displayName": "Druga Warstwa (jasny)",
+        "tonalRamp": [
+          "#1a1a18",
+          "#33332f",
+          "#575853",
+          "#80817b",
+          "#a6a7a1",
+          "#c9cac5",
+          "#e1e1dd",
+          "#f6f6f3"
+        ]
+      },
+      "bg-3-light": {
+        "role": "neutral",
+        "displayName": "Trzecia Warstwa (jasny)",
+        "tonalRamp": [
+          "#1a1a18",
+          "#33332f",
+          "#575853",
+          "#80817b",
+          "#a6a7a1",
+          "#c9cac5",
+          "#e1e1dd",
+          "#f6f6f3"
+        ]
+      },
+      "ink-light": {
+        "role": "neutral",
+        "displayName": "Jasny Atrament (jasny)",
+        "tonalRamp": [
+          "#1a1a18",
+          "#33332f",
+          "#575853",
+          "#80817b",
+          "#a6a7a1",
+          "#c9cac5",
+          "#e1e1dd",
+          "#f6f6f3"
+        ]
+      },
+      "ink-2-light": {
+        "role": "neutral",
+        "displayName": "Atrament Drugorzędny (jasny)",
+        "tonalRamp": [
+          "#1a1a18",
+          "#33332f",
+          "#575853",
+          "#80817b",
+          "#a6a7a1",
+          "#c9cac5",
+          "#e1e1dd",
+          "#f6f6f3"
+        ]
+      },
+      "ink-3-light": {
+        "role": "neutral",
+        "displayName": "Atrament Meta (jasny)",
+        "tonalRamp": [
+          "#1a1a18",
+          "#33332f",
+          "#575853",
+          "#80817b",
+          "#a6a7a1",
+          "#c9cac5",
+          "#e1e1dd",
+          "#f6f6f3"
+        ]
+      },
+      "line-light": {
+        "role": "neutral",
+        "displayName": "Hairline (jasny)",
+        "tonalRamp": [
+          "#1a1a18",
+          "#33332f",
+          "#575853",
+          "#80817b",
+          "#a6a7a1",
+          "#c9cac5",
+          "#e1e1dd",
+          "#f6f6f3"
+        ]
+      },
+      "line-2-light": {
+        "role": "neutral",
+        "displayName": "Hairline Kontrolek (jasny)",
+        "tonalRamp": [
+          "#1a1a18",
+          "#33332f",
+          "#575853",
+          "#80817b",
+          "#a6a7a1",
+          "#c9cac5",
+          "#e1e1dd",
+          "#f6f6f3"
+        ]
+      },
+      "dot-light": {
+        "role": "neutral",
+        "displayName": "Kropka Pusta (jasny)",
+        "tonalRamp": [
+          "#1a1a18",
+          "#33332f",
+          "#575853",
+          "#80817b",
+          "#a6a7a1",
+          "#c9cac5",
+          "#e1e1dd",
+          "#f6f6f3"
+        ]
+      },
+      "dot-live-light": {
+        "role": "neutral",
+        "displayName": "Kropka Żywa (jasny)",
+        "tonalRamp": [
+          "#1a1a18",
+          "#33332f",
+          "#575853",
+          "#80817b",
+          "#a6a7a1",
+          "#c9cac5",
+          "#e1e1dd",
+          "#f6f6f3"
+        ]
+      },
+      "focus-light": {
+        "role": "neutral",
+        "displayName": "Fokus (jasny)",
+        "tonalRamp": [
+          "#1a1a18",
+          "#33332f",
+          "#575853",
+          "#80817b",
+          "#a6a7a1",
+          "#c9cac5",
+          "#e1e1dd",
+          "#f6f6f3"
+        ]
+      },
+      "change-light": {
+        "role": "primary",
+        "displayName": "Sygnałowy Pomarańcz Zmiany (jasny)",
+        "tonalRamp": [
+          "#2b1500",
+          "#552a00",
+          "#804000",
+          "#ad5700",
+          "#d96f0a",
+          "#ff9a2e",
+          "#ffc48a",
+          "#ffe9d4"
+        ]
+      },
+      "change-ink-light": {
+        "role": "primary",
+        "displayName": "Atrament Zmiany (jasny)",
+        "tonalRamp": [
+          "#2b1500",
+          "#552a00",
+          "#804000",
+          "#ad5700",
+          "#d96f0a",
+          "#ff9a2e",
+          "#ffc48a",
+          "#ffe9d4"
+        ]
+      },
+      "crit-light": {
+        "role": "secondary",
+        "displayName": "Alarmowa Czerwień (jasny)",
+        "tonalRamp": [
+          "#2a0708",
+          "#540f12",
+          "#80181d",
+          "#ab222a",
+          "#d43a41",
+          "#ff5c61",
+          "#ff9fa2",
+          "#ffe1e2"
+        ]
+      },
+      "ok-light": {
+        "role": "tertiary",
+        "displayName": "Stonowana Zieleń Statusu (jasny)",
+        "tonalRamp": [
+          "#0b2416",
+          "#13402a",
+          "#1d5c3c",
+          "#276a42",
+          "#3f8f5f",
+          "#64b383",
+          "#8fd0a8",
+          "#d8f0e1"
+        ]
+      }
+    },
+    "typographyMeta": {
+      "brand": {
+        "displayName": "Znak",
+        "purpose": "Znak „A S I” w pasku górnym (26px) i na logowaniu (44px); litera S w pomarańczu."
+      },
+      "display": {
+        "displayName": "Display",
+        "purpose": "Tytuły modułów A–D (24px), puste stany i karta logowania (20px)."
+      },
+      "headline-number": {
+        "displayName": "Liczba główna",
+        "purpose": "Łączna liczba zmian w module A."
+      },
+      "body": {
+        "displayName": "Tekst UI",
+        "purpose": "Cały tekst roboczy: wiersze, tabele, przyciski."
+      },
+      "label": {
+        "displayName": "Etykieta",
+        "purpose": "Meta, daty prozą, legendy, pasek liczników, chipy."
+      },
+      "table-head": {
+        "displayName": "Nagłówek tabeli",
+        "purpose": "Wyłącznie nagłówki kolumn tabeli; wersaliki, 0.08em."
+      },
+      "mono": {
+        "displayName": "Mono",
+        "purpose": "Adresy IP, CIDR, porty i liczby; nigdy proza."
+      }
+    },
+    "shadows": [
+      {
+        "name": "overlay",
+        "value": "0 12px 32px rgba(0, 0, 0, 0.55)",
+        "purpose": "Toast i dialog skrótów w motywie ciemnym; nigdzie indziej."
+      },
+      {
+        "name": "overlay-light",
+        "value": "0 12px 28px rgba(18, 20, 22, 0.16)",
+        "purpose": "Toast i dialog w motywie jasnym."
+      },
+      {
+        "name": "selected-ring",
+        "value": "inset 0 0 0 1px var(--ink)",
+        "purpose": "Wybrany / aktywny wiersz, zawsze z tłem bg-3; nigdy pomarańcz."
+      }
+    ],
+    "motion": [
+      {
+        "name": "ease",
+        "value": "cubic-bezier(0.16, 1, 0.3, 1)",
+        "purpose": "Jedyna krzywa systemu."
+      },
+      {
+        "name": "state",
+        "value": "150ms",
+        "purpose": "Hover i zmiany stanu ramek, tła, koloru."
+      },
+      {
+        "name": "tip",
+        "value": "120ms",
+        "purpose": "Podpowiedź szyny."
+      },
+      {
+        "name": "toast-in",
+        "value": "220ms",
+        "purpose": "Wjazd toastu z 8px."
+      },
+      {
+        "name": "spike-grow",
+        "value": "650ms",
+        "purpose": "Wzrost iglic nad portami zmienionymi."
+      },
+      {
+        "name": "reduced-motion",
+        "value": "none",
+        "purpose": "prefers-reduced-motion wyłącza wszystkie przejścia i animacje."
+      }
+    ],
+    "breakpoints": [
+      {
+        "name": "tablet",
+        "value": "1279px"
+      },
+      {
+        "name": "phone",
+        "value": "759px"
+      }
+    ]
+  },
+  "components": [
+    {
+      "name": "Moduł HUD",
+      "kind": "card",
+      "refersTo": "module-tag",
+      "description": "Ramka hairline z narożnikami HUD i odwróconym znacznikiem literowym A–D; kontener każdego modułu.",
+      "html": "<section class=\"ds-mod\"><span class=\"ds-mod-tag\">A</span><header class=\"ds-mod-head\"><h2 class=\"ds-mod-title\">Zmiany od przebiegu</h2><span class=\"ds-mod-meta\">10.0.0.0/24</span></header><p class=\"ds-mod-body\">Treść modułu.</p></section>",
+      "css": ".ds-mod{position:relative;border:1px solid var(--line);background:var(--bg);color:var(--ink);padding:14px 16px;font:400 13px/1.45 var(--font-ui)}.ds-mod::before,.ds-mod::after{content:\"\";position:absolute;width:11px;height:11px;border:1px solid var(--ink-2)}.ds-mod::before{top:-1px;left:-1px;border-right:0;border-bottom:0}.ds-mod::after{bottom:-1px;right:-1px;border-left:0;border-top:0}.ds-mod-tag{position:absolute;top:-1px;right:-1px;background:var(--tag-bg);color:var(--tag-ink);font:600 12px/1 var(--font-mono);padding:3px 6px;letter-spacing:.04em}.ds-mod-head{display:flex;align-items:baseline;gap:12px;margin:0 30px 12px 0}.ds-mod-title{margin:0;font:600 24px/1.05 var(--font-display);letter-spacing:.015em}.ds-mod-meta{color:var(--ink-3);font:12px var(--font-mono)}.ds-mod-body{margin:0;color:var(--ink-2)}"
+    },
+    {
+      "name": "Przycisk główny",
+      "kind": "button",
+      "refersTo": "button-primary",
+      "description": "Główna akcja w module: wypełnienie atramentem.",
+      "html": "<button class=\"ds-btn-primary\">Eksportuj do DefectDojo</button>",
+      "css": ".ds-btn-primary{display:inline-flex;align-items:center;gap:6px;background:var(--ink);color:var(--bg);border:1px solid var(--ink);padding:6px 12px;font:500 13px/1.45 var(--font-ui);border-radius:0;cursor:pointer;transition:border-color 150ms cubic-bezier(.16,1,.3,1),background 150ms cubic-bezier(.16,1,.3,1)}.ds-btn-primary:hover{background:var(--ink-2);border-color:var(--ink-2)}.ds-btn-primary:focus-visible{outline:2px solid var(--focus);outline-offset:2px}"
+    },
+    {
+      "name": "Przycisk domyślny",
+      "kind": "button",
+      "refersTo": "button",
+      "description": "Akcje drugorzędne: przezroczysty z hairline.",
+      "html": "<button class=\"ds-btn\">Uruchom skan</button>",
+      "css": ".ds-btn{background:transparent;border:1px solid var(--line-2);color:var(--ink);padding:6px 12px;font:500 13px/1.45 var(--font-ui);border-radius:0;cursor:pointer;transition:border-color 150ms cubic-bezier(.16,1,.3,1),background 150ms cubic-bezier(.16,1,.3,1)}.ds-btn:hover{border-color:var(--ink-2);background:var(--bg-3)}.ds-btn:focus-visible{outline:2px solid var(--focus);outline-offset:2px}"
+    },
+    {
+      "name": "Przycisk niebezpieczny",
+      "kind": "button",
+      "refersTo": "button-danger",
+      "description": "Akcje destrukcyjne (zatrzymaj, usuń): tekst i ramka w crit.",
+      "html": "<button class=\"ds-btn-danger\">Zatrzymaj</button>",
+      "css": ".ds-btn-danger{background:transparent;border:1px solid color-mix(in srgb,var(--crit) 55%,var(--line));color:var(--crit);padding:6px 12px;font:500 13px/1.45 var(--font-ui);border-radius:0;cursor:pointer;transition:background 150ms cubic-bezier(.16,1,.3,1)}.ds-btn-danger:hover{background:var(--crit-wash);border-color:var(--crit)}.ds-btn-danger:focus-visible{outline:2px solid var(--focus);outline-offset:2px}"
+    },
+    {
+      "name": "Przełącznik segmentowy",
+      "kind": "chip",
+      "refersTo": "segment-on",
+      "description": "PL/EN, motyw, filtry; wybrany segment odwrócony atramentem, nigdy pomarańczem.",
+      "html": "<div class=\"ds-seg\"><button aria-pressed=\"true\">PL</button><button aria-pressed=\"false\">EN</button></div>",
+      "css": ".ds-seg{display:inline-flex;border:1px solid var(--line-2)}.ds-seg button{background:transparent;border:0;padding:4px 9px;color:var(--ink-3);font:600 12px var(--font-ui);letter-spacing:.06em;cursor:pointer}.ds-seg button+button{border-left:1px solid var(--line-2)}.ds-seg button[aria-pressed=true]{background:var(--ink);color:var(--bg)}.ds-seg button:hover:not([aria-pressed=true]){color:var(--ink)}.ds-seg button:focus-visible{outline:2px solid var(--focus);outline-offset:2px}"
+    },
+    {
+      "name": "Pole tekstowe",
+      "kind": "input",
+      "refersTo": "input",
+      "description": "Pole formularza z etykietą 12px nad nim.",
+      "html": "<label class=\"ds-field\">Login<input value=\"operator\"></label>",
+      "css": ".ds-field{display:flex;flex-direction:column;gap:5px;font:400 12px var(--font-ui);color:var(--ink-2)}.ds-field input{background:var(--bg-2);border:1px solid var(--line-2);border-radius:0;padding:8px 10px;font:400 14px var(--font-ui);color:var(--ink)}.ds-field input:hover{border-color:var(--ink-3)}.ds-field input:focus-visible{outline:2px solid var(--focus);outline-offset:0}"
+    },
+    {
+      "name": "Nawigacja (szyna)",
+      "kind": "nav",
+      "refersTo": "",
+      "description": "Ikony 40px; bieżąca pozycja z narożnikami HUD w atramencie.",
+      "html": "<nav class=\"ds-rail\"><a class=\"ds-rail-link is-current\" href=\"#\" aria-label=\"Przegląd\"><svg width=\"18\" height=\"18\" viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.75\"><rect x=\"3\" y=\"3\" width=\"7\" height=\"7\"/><rect x=\"14\" y=\"3\" width=\"7\" height=\"7\"/><rect x=\"3\" y=\"14\" width=\"7\" height=\"7\"/><rect x=\"14\" y=\"14\" width=\"7\" height=\"7\"/></svg></a><a class=\"ds-rail-link\" href=\"#\" aria-label=\"Skany\"><svg width=\"18\" height=\"18\" viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.75\"><circle cx=\"12\" cy=\"12\" r=\"9\"/><path d=\"M12 12l6-6\"/></svg></a></nav>",
+      "css": ".ds-rail{display:flex;flex-direction:column;align-items:center;gap:4px;width:64px;padding:12px 0;background:var(--bg-2);border-right:1px solid var(--line)}.ds-rail-link{position:relative;display:grid;place-items:center;width:40px;height:40px;color:var(--ink-3);border:1px solid transparent;transition:color 150ms cubic-bezier(.16,1,.3,1),border-color 150ms cubic-bezier(.16,1,.3,1)}.ds-rail-link:hover,.ds-rail-link.is-current{color:var(--ink);border-color:var(--line-2)}.ds-rail-link:focus-visible{outline:2px solid var(--focus);outline-offset:2px}.ds-rail-link.is-current::before,.ds-rail-link.is-current::after{content:\"\";position:absolute;width:6px;height:6px;border:1px solid var(--ink)}.ds-rail-link.is-current::before{top:-1px;left:-1px;border-right:0;border-bottom:0}.ds-rail-link.is-current::after{bottom:-1px;right:-1px;border-left:0;border-top:0}"
+    },
+    {
+      "name": "Wiersz triage z pewnością",
+      "kind": "custom",
+      "refersTo": "chip",
+      "description": "Dwuliniowy wiersz kolejki: wartość i pipsy pewności k/N, potem rodzaj, chip i tytuł; wybrany = pierścień atramentu.",
+      "html": "<div class=\"ds-q is-selected\" tabindex=\"0\"><svg class=\"ds-q-ic\" width=\"15\" height=\"15\" viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.75\"><path d=\"M12 5v14M5 12h14\"/></svg><div class=\"ds-q-body\"><div class=\"ds-q-l1\"><span class=\"ds-mono\">10.0.0.14:8080</span><span class=\"ds-conf\"><span class=\"ds-pips\"><i class=\"on\"></i><i class=\"on\"></i><i></i></span>2/3</span></div><div class=\"ds-q-l2\"><b>Nowa usługa</b><span class=\"ds-chip\">http</span><span>Panel administracyjny</span></div></div></div>",
+      "css": ".ds-q{display:grid;grid-template-columns:18px minmax(0,1fr);gap:10px;padding:7px 16px;border-bottom:1px dashed var(--line);color:var(--ink);font:400 13px/1.45 var(--font-ui);outline:none}.ds-q:hover{background:var(--bg-2)}.ds-q.is-selected,.ds-q:focus-visible{background:var(--bg-3);box-shadow:inset 0 0 0 1px var(--ink)}.ds-q-ic{color:var(--change)}.ds-q-body{display:flex;flex-direction:column;gap:2px;min-width:0}.ds-q-l1{display:flex;align-items:baseline;gap:8px}.ds-mono{font-family:var(--font-mono);font-variant-numeric:tabular-nums;font-weight:500}.ds-conf{margin-left:auto;display:inline-flex;align-items:center;gap:6px;font-size:12px;color:var(--ink-3)}.ds-pips{display:inline-flex;gap:2px}.ds-pips i{width:4px;height:8px;border:1px solid var(--ink-3)}.ds-pips i.on{background:var(--ink-2);border-color:var(--ink-2)}.ds-q-l2{display:flex;align-items:baseline;gap:6px;font-size:12px;color:var(--ink-2)}.ds-chip{border:1px solid var(--line-2);padding:0 6px;line-height:18px}"
+    },
+    {
+      "name": "Legenda kształtów stanu",
+      "kind": "custom",
+      "refersTo": "",
+      "description": "Słownik znaków mapy: kształt niesie stan, kolor tylko go wzmacnia.",
+      "html": "<ul class=\"ds-lg\"><li><i class=\"live\"></i>żywy</li><li><i class=\"new\"></i>nowy</li><li><i class=\"chg\"></i>zmieniony</li><li><i class=\"gone\"></i>zniknął</li><li><i class=\"flap\"></i>flapping</li><li><i class=\"crit\"></i>krytyczne</li></ul>",
+      "css": ".ds-lg{list-style:none;display:flex;flex-wrap:wrap;gap:6px 16px;margin:0;padding:8px 0 0;border-top:1px solid var(--line);font:400 12px var(--font-ui);color:var(--ink-3)}.ds-lg li{display:inline-flex;align-items:center;gap:6px}.ds-lg i{width:8px;height:8px;border-radius:50%;display:inline-block}.ds-lg .live{background:var(--dot-live)}.ds-lg .new{background:var(--change);width:10px;height:10px}.ds-lg .chg{background:var(--change);border-radius:0;transform:rotate(45deg)}.ds-lg .gone{border:1.5px solid var(--change)}.ds-lg .flap{border:1px solid var(--change);background:linear-gradient(90deg,var(--change) 50%,transparent 50%)}.ds-lg .crit{background:var(--crit)}"
+    },
+    {
+      "name": "Budżet okna",
+      "kind": "custom",
+      "refersTo": "",
+      "description": "Zużycie okna czasowego; przekroczenie w crit z kreskowaniem 135°.",
+      "html": "<div class=\"ds-budget\"><div class=\"ds-bar\"><i style=\"width:62%\"></i></div><span>37 / 60 min</span></div><div class=\"ds-budget is-over\"><div class=\"ds-bar\"><i style=\"width:100%\"></i></div><span>przekroczono o 12 min</span></div>",
+      "css": ".ds-budget{display:flex;flex-direction:column;gap:4px;width:200px;margin-bottom:10px;font:400 12px var(--font-ui);color:var(--ink-3)}.ds-bar{height:6px;background:var(--bg-3);position:relative;border:1px solid var(--line)}.ds-bar i{position:absolute;inset:0 auto 0 0;background:var(--ink-2)}.ds-budget.is-over{color:var(--crit)}.ds-budget.is-over .ds-bar{border-color:var(--crit);background:repeating-linear-gradient(135deg,var(--crit-wash) 0 4px,transparent 4px 8px)}.ds-budget.is-over .ds-bar i{background:var(--crit)}"
+    },
+    {
+      "name": "Toast błędu",
+      "kind": "custom",
+      "refersTo": "toast-error",
+      "description": "Błąd zostaje do zamknięcia przez operatora; obok dialogu jedyny element z cieniem.",
+      "html": "<div class=\"ds-toast-err\" role=\"alert\"><span>Nie udało się pobrać danych z API.</span><button aria-label=\"Zamknij\"><svg width=\"14\" height=\"14\" viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\"><path d=\"M6 6l12 12M18 6L6 18\"/></svg></button></div>",
+      "css": ".ds-toast-err{display:flex;align-items:flex-start;gap:12px;max-width:440px;padding:10px 10px 10px 14px;background:var(--bg);color:var(--crit);border:1px solid var(--crit);box-shadow:var(--shadow);font:400 13px/1.45 var(--font-ui)}.ds-toast-err button{background:none;border:0;color:inherit;padding:0 4px;opacity:.8;cursor:pointer}.ds-toast-err button:hover{opacity:1}.ds-toast-err button:focus-visible{outline:2px solid var(--focus);outline-offset:2px}"
+    }
+  ],
+  "narrative": {
+    "northStar": "Ekran DataV przy biurku",
+    "overview": "Gramatyka ekranów big-screen (moduły w ramkach z narożnikami HUD, literowe znaczniki A–D, kropkowy wireframe, pasek liczników u dołu) przeniesiona na laptop operatora i zagęszczona do pracy z bliska. Ekran ma jedno zadanie: pokazać bez klikania, co się zmieniło od ostatniego przebiegu i gdzie w przestrzeni adresowej. Wszystko, co nie jest zmianą, jest jasnoszarym atramentem na czerni.\n\nGęstość jest wysoka, ale uporządkowana: tekst UI 13px, meta 12px, hairline 1px wszędzie. Głębię dają ramki i odcienie tła, nie cienie. Tryb ciemny jest domyślny; jasny to odwrócenie atramentu na papier (ciepła, złamana biel), z osobno dobranymi tonami tak, żeby mały tekst trzymał WCAG 2.2 AA w obu motywach.\n\nOdrzucone: rząd kart KPI z donutem i mapą świata, zaokrąglone karty, akcenty z bocznego paska, kolor jako jedyny nośnik stanu.",
+    "keyCharacteristics": [
+      "Czarne tło, jasnoszary atrament, szare hairline 1px, zero zaokrągleń.",
+      "Pomarańcz wyłącznie = zmiana; czerwień wyłącznie = krytyczne / przekroczone / błąd.",
+      "Moduły w ramkach z narożnikami i odwróconym znacznikiem literowym.",
+      "Stan zawsze kształtem (kropka, romb, pierścień, półwypełnienie, długość iglicy) i etykietą, nigdy samym kolorem.",
+      "Condensed display tylko w nagłówkach modułów i znaku; Geist Sans dla UI; Geist Mono wyłącznie dla adresów i liczb."
+    ],
+    "rules": [
+      {
+        "name": "Reguła Pomarańczu = Zmiana",
+        "body": "Pomarańcz oznacza zmianę i nic więcej. Fokus, zaznaczenie, stan aktywny i wybrany używają atramentu (obrys 2px w `focus`, pierścień 1px inset w `ink`), nigdy pomarańczu. Jedyny wyjątek to litera „S” w znaku „A S I” (logo).",
+        "section": "colors"
+      },
+      {
+        "name": "Reguła Czerwieni = Krytyczne",
+        "body": "Czerwień pojawia się tylko przy krytycznym, przekroczonym lub nieudanym. Ostrzeżenie „do sprawdzenia” to nie czerwień.",
+        "section": "colors"
+      },
+      {
+        "name": "Reguła Kształtu przed Kolorem",
+        "body": "Żaden stan nie jest kodowany samym kolorem: kropka = żywy / nowy, romb = zmieniony, pierścień = zniknął, półwypełnienie = flapping, długość iglicy = waga; na listach ikona plus etykieta.",
+        "section": "colors"
+      },
+      {
+        "name": "Reguła Dwóch Motywów AA",
+        "body": "Mały tekst trzyma WCAG 2.2 AA w obu motywach; w jasnym dlatego `ink-3-light`, `change-ink-light` i `ok-light` są ciemniejsze niż proste odwrócenie.",
+        "section": "colors"
+      },
+      {
+        "name": "Reguła Mono dla Maszyny",
+        "body": "Monospace tylko dla adresów i liczb. Czasy i daty pisane prozą („2 godz. temu”, „wczoraj 03:10”) idą w Geist Sans.",
+        "section": "typography"
+      },
+      {
+        "name": "Reguła Jednego Display",
+        "body": "Saira Condensed występuje tylko w znaku i tytułach modułów; nigdy w treści, przyciskach ani etykietach.",
+        "section": "typography"
+      },
+      {
+        "name": "Reguła Płaskiego Modułu",
+        "body": "Moduły, wiersze i kontrolki nie mają cienia. Stan pokazuje ramka lub odcień tła, nie uniesienie.",
+        "section": "elevation"
+      },
+      {
+        "name": "Reguła Ramki, nie Karty",
+        "body": "Brak zaokrąglonych kart. Kontener to hairline z narożnikami HUD albo nic.",
+        "section": "shapes"
+      }
+    ],
+    "dos": [
+      "**Do** rezerwuj `change` dla zmian (nowe, zniknięte, zmienione, flapping, onset, skan w toku), a `change-ink` dla tekstu o zmianie.",
+      "**Do** oznaczaj fokus obrysem 2px `focus` (offset 2px), a zaznaczenie i stan aktywny pierścieniem inset 1px `ink` na tle `bg-3`.",
+      "**Do** koduj stan kształtem: kropka = żywy / nowy, romb = zmieniony, pierścień = zniknął, półwypełnienie = flapping, długość iglicy = waga; na listach ikona plus etykieta.",
+      "**Do** opakowuj każdy moduł ramką hairline z narożnikami HUD i odwróconym znacznikiem literowym.",
+      "**Do** pisz adresy, porty i liczby w Geist Mono z cyframi tabelarycznymi; czasy prozą w Geist Sans.",
+      "**Do** zostawiaj komunikaty o błędach na ekranie, aż operator je zamknie.",
+      "**Do** sprawdzaj kontrast małego tekstu (AA) w obu motywach przy każdym nowym tokenie."
+    ],
+    "donts": [
+      "**Don't** używaj pomarańczu do fokusu, zaznaczenia, aktywnej zakładki ani dekoracji; jedyny wyjątek to „S” w znaku „A S I”.",
+      "**Don't** używaj czerwieni do niczego poza krytycznym, przekroczonym budżetem i błędem.",
+      "**Don't** przekazuj stanu samym kolorem.",
+      "**Don't** stosuj akcentów z bocznego paska (kolorowa krawędź z lewej strony wiersza lub karty).",
+      "**Don't** zaokrąglaj kontenerów ani nie buduj kart z cieniem; cień tylko dla toastu i dialogu.",
+      "**Don't** pisz prozy ani etykiet w monospace.",
+      "**Don't** wprowadzaj rzędu kart KPI, donutów ani mapy świata."
+    ]
+  }
+}

@@ -13,6 +13,15 @@ RUN go install -v github.com/projectdiscovery/subfinder/v2/cmd/subfinder@latest 
  && go install -v github.com/projectdiscovery/naabu/v2/cmd/naabu@latest \
  && go install -v github.com/projectdiscovery/nuclei/v3/cmd/nuclei@latest
 
+# Panel (Vite + React) budowany w osobnym etapie: w finalnym obrazie zostaje tylko statyczny
+# dist/, bez node_modules. Czcionki są w paczce (@fontsource), więc UI działa offline w labie.
+FROM node:22-bookworm-slim AS web
+WORKDIR /web
+COPY frontend/package.json frontend/package-lock.json ./
+RUN npm ci --no-audit --no-fund
+COPY frontend/ ./
+RUN npm run build
+
 FROM python:3.12-slim-bookworm
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
@@ -35,6 +44,7 @@ RUN pip install --no-cache-dir -r requirements.txt
 
 COPY asi ./asi
 COPY static ./static
+COPY --from=web /web/dist ./frontend/dist
 
 ENV ASI_HOST=0.0.0.0 \
     ASI_PORT=8000 \

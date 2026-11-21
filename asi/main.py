@@ -13,12 +13,15 @@ from fastapi import Cookie, Depends, FastAPI, File, Form, HTTPException, Respons
 from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, Response
 from pydantic import BaseModel
 
-from . import auth, crypto, db, defectdojo, geo, scanner
+from . import auth, crypto, dashboard, db, defectdojo, geo, scanner
 from . import signatures as signatures_mod
 from . import targets as targets_mod
 
 app = FastAPI(title="Attack Surface Intelligence PoC")
 STATIC = os.path.join(db.ROOT, "static")
+# Nowy frontend (Vite + React). Gdy zbudowany - serwowany pod "/", stary UI zostaje pod /legacy
+# do czasu, aż React pokryje wszystkie widoki.
+DIST = os.environ.get("ASI_FRONTEND_DIST", os.path.join(db.ROOT, "frontend", "dist"))
 SEV_ORDER = {"critical": 0, "high": 1, "medium": 2, "low": 3, "info": 4}
 
 
@@ -173,9 +176,29 @@ class ScanReq(BaseModel):
     time_window_mins: int | None = None
 
 
+def _has_dist():
+    return os.path.isfile(os.path.join(DIST, "index.html"))
+
+
 @app.get("/")
 def index():
+    if _has_dist():
+        return FileResponse(os.path.join(DIST, "index.html"), headers={"Cache-Control": "no-cache"})
     return FileResponse(os.path.join(STATIC, "index.html"))
+
+
+@app.get("/legacy")
+def legacy_index():
+    return FileResponse(os.path.join(STATIC, "index.html"))
+
+
+@app.get("/assets/{path:path}")
+def dist_assets(path: str):
+    base = os.path.realpath(os.path.join(DIST, "assets"))
+    full = os.path.realpath(os.path.join(base, path))
+    if not full.startswith(base + os.sep) or not os.path.isfile(full):
+        raise HTTPException(404)
+    return FileResponse(full, headers={"Cache-Control": "public, max-age=31536000, immutable"})
 
 
 @app.get("/command-center")
@@ -619,3 +642,147 @@ def delete_schedule(sid: int, user: dict = Depends(auth.require("add_remove_modi
         c.execute("DELETE FROM schedules WHERE id=?", (sid,))
     return {"ok": True}
 
+
+
+# ---------- Przegląd (dashboard ponad skanami) ----------
+
+def _check_rid(rid):
+    if not (1 <= len(rid) <= 64 and all(ch in "0123456789abcdef" for ch in rid)):
+        raise HTTPException(400, "Nieprawidłowy identyfikator zakresu.")
+
+
+@app.get("/api/dashboard")
+def get_dashboard(range: str | None = None, scan: int | None = None, at: float | None = None,
+                  user: dict = Depends(auth.require("read"))):
+    if range is not None:
+        _check_rid(range)
+    return dashboard.build(range, scan, at)
+
+
+TRIAGE_STATUSES = ("open", "ok", "accepted", "false_positive")
+
+
+class TriageReq(BaseModel):
+    asset: str
+    key: str
+    status: str
+    note: str = ""
+    finding_rowid: int | None = None
+
+
+@app.post("/api/triage")
+def set_triage(req: TriageReq, user: dict = Depends(auth.require("read_modify"))):
+    """Triage zmiany lub ustalenia z dashboardu - kluczowany (zasób, rodzaj zmiany/tytuł), nie
+    skanem, więc decyzja przetrwa kolejne przebiegi (pkt 14 specyfikacji)."""
+    if req.status not in TRIAGE_STATUSES:
+        raise HTTPException(400, f"Status musi być jednym z: {', '.join(TRIAGE_STATUSES)}")
+    if not (0 < len(req.asset) <= 600 and 0 < len(req.key) <= 600) or len(req.note) > 2000:
+        raise HTTPException(400, "Za długie pole.")
+    with db.conn() as c:
+        if req.status == "open":
+            c.execute("DELETE FROM triage WHERE asset=? AND key=?", (req.asset, req.key))
+        else:
+            c.execute("INSERT OR REPLACE INTO triage(asset,key,status,note,username,updated) VALUES(?,?,?,?,?,?)",
+                      (req.asset, req.key, req.status, req.note, user["username"], time.time()))
+    if req.finding_rowid is not None and req.status in ("false_positive", "open"):
+        edit_finding(req.finding_rowid, FindingEdit(false_positive=req.status == "false_positive"), user)
+    return {"ok": True}
+
+
+class NoteReq(BaseModel):
+    note: str
+
+
+def _range_runs(rid):
+    _check_rid(rid)
+    with db.conn() as c:
+        rows = c.execute("SELECT id, target_hash, opts, status FROM scans WHERE target_hash LIKE ? "
+                         "AND stage!='zaimportowany' ORDER BY id DESC", (rid + "%",)).fetchall()
+    if not rows:
+        raise HTTPException(404, "Nie ma takiego zakresu.")
+    if len({r["target_hash"] for r in rows}) > 1:
+        raise HTTPException(409, "Niejednoznaczny identyfikator zakresu.")
+    return rows
+
+
+@app.put("/api/ranges/{rid}/note")
+def set_range_note(rid: str, req: NoteReq, user: dict = Depends(auth.require("read_modify"))):
+    if len(req.note) > 500:
+        raise HTTPException(400, "Notatka może mieć najwyżej 500 znaków.")
+    thash = _range_runs(rid)[0]["target_hash"]
+    with db.conn() as c:
+        c.execute("INSERT OR REPLACE INTO range_notes(target_hash,note,username,updated) VALUES(?,?,?,?)",
+                  (thash, req.note.strip(), user["username"], time.time()))
+    return {"ok": True}
+
+
+@app.post("/api/ranges/{rid}/run")
+def run_range(rid: str, user: dict = Depends(auth.require("add_remove_modify"))):
+    """Nowy przebieg zakresu z tymi samymi celami i opcjami co ostatni (zgoda na skan została
+    potwierdzona przy pierwszym uruchomieniu tego zakresu)."""
+    rows = _range_runs(rid)
+    if any(r["status"] in ("queued", "running") for r in rows):
+        raise HTTPException(409, "Ten zakres jest właśnie skanowany.")
+    with db.conn() as c:
+        targets = [r["target"] for r in c.execute("SELECT target FROM scan_targets WHERE scan_id=?", (rows[0]["id"],))]
+    if not targets:
+        raise HTTPException(400, "Brak zapisanych celów dla tego zakresu.")
+    sid, _ = _start_scan(targets, json.loads(rows[0]["opts"] or "{}"))
+    return {"id": sid}
+
+
+@app.post("/api/scans/{sid}/stop")
+def stop_scan(sid: int, user: dict = Depends(auth.require("add_remove_modify"))):
+    with db.conn() as c:
+        row = c.execute("SELECT status FROM scans WHERE id=?", (sid,)).fetchone()
+        if not row:
+            raise HTTPException(404, "Nie ma takiego skanu")
+        if row["status"] not in ("queued", "running"):
+            raise HTTPException(409, "Skan nie jest w toku.")
+        c.execute("UPDATE scans SET stop_requested=1 WHERE id=?", (sid,))
+    return {"ok": True}
+
+
+class DojoItem(BaseModel):
+    scan_id: int
+    asset: str
+    kind: str
+    title: str
+    finding_rowid: int | None = None
+
+
+class DojoSelection(BaseModel):
+    items: list[DojoItem]
+
+
+@app.post("/api/defectdojo/export")
+def export_selection(req: DojoSelection, user: dict = Depends(auth.require("add_remove_modify"))):
+    """Eksport zaznaczonych obserwacji z dashboardu: ustalenia jak są, zmiany jako findingi
+    informacyjne (obserwacja jako evidence - zakres mile widziany w specyfikacji)."""
+    if not defectdojo.configured():
+        raise HTTPException(400, "DefectDojo nieskonfigurowany (Ustawienia lub ASI_DEFECTDOJO_URL / _API_KEY).")
+    if not req.items or len(req.items) > 500:
+        raise HTTPException(400, "Zaznacz od 1 do 500 obserwacji.")
+    out, target = [], None
+    with db.conn() as c:
+        for it in req.items:
+            s = c.execute("SELECT target FROM scans WHERE id=?", (it.scan_id,)).fetchone()
+            if not s:
+                continue
+            target = target or s["target"]
+            if it.finding_rowid is not None:
+                f = c.execute("SELECT * FROM findings WHERE rowid=? AND scan_id=?",
+                              (it.finding_rowid, it.scan_id)).fetchone()
+                if f:
+                    out.append({**dict(f), "detail": crypto.dec(f["detail"])})
+                continue
+            out.append({"severity": "info", "title": f"[ASI {it.kind}] {it.asset}: {it.title}"[:500],
+                        "detail": f"Zmiana wykryta przez ASI w przebiegu #{it.scan_id} ({s['target']}).",
+                        "fix": "", "source": "asi-diff"})
+    if not out:
+        raise HTTPException(400, "Żadna z zaznaczonych obserwacji nie istnieje.")
+    try:
+        result = defectdojo.export_scan(target or "ASI", out, engagement_name="ASI - wybrane obserwacje")
+    except RuntimeError as e:
+        raise HTTPException(502, str(e))
+    return {"ok": True, "count": len(out), "defectdojo": result}
