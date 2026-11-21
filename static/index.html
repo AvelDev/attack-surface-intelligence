@@ -729,7 +729,9 @@ tr:hover td { background: rgba(255,255,255,0.015); }
   </div>
 </div>
 
-<script src="https://cdnjs.cloudflare.com/ajax/libs/vis-network/9.1.9/standalone/umd/vis-network.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/vis-network/9.1.9/standalone/umd/vis-network.min.js"
+        integrity="sha384-yxKDWWf0wwdUj/gPeuL11czrnKFQROnLgY8ll7En9NYoXibgg3C6NK/UDHNtUgWJ"
+        crossorigin="anonymous"></script>
 <script>
 const $ = s => document.querySelector(s);
 const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
@@ -741,6 +743,7 @@ let activeTab = 'tabOverview';
 let visNetwork = null;
 let nodesDataSet = null;
 let edgesDataSet = null;
+let lastGraphContainer = null;
 let currentTriageRowId = null;
 
 const COLORS = {
@@ -1137,7 +1140,15 @@ function renderGraphSmooth(d) {
 
   const edges = d.edges.map(e => ({ from: e.src, to: e.dst, color: { color: '#334155' } }));
 
-  if (!visNetwork) {
+  // #graphBox jest NOWYM elementem DOM przy każdym odświeżeniu widoku (innerHTML całej
+  // zakładki jest podmieniany co ~2s podczas trwającego skanu) - samo sprawdzenie
+  // "if (!visNetwork)" tego nie wyłapywało, więc po pierwszym renderze graf aktualizował
+  // dane w już odłączonej, niewidocznej instancji zamiast podłączyć się do nowego
+  // kontenera (stąd "pokazuje się raz i znika"). Trzeba porównać sam węzeł DOM.
+  if (!visNetwork || container !== lastGraphContainer) {
+    if (visNetwork) {
+      try { visNetwork.destroy(); } catch (e) { /* stary kontener już i tak zniknął */ }
+    }
     nodesDataSet = new vis.DataSet(nodes);
     edgesDataSet = new vis.DataSet(edges);
     const data = { nodes: nodesDataSet, edges: edgesDataSet };
@@ -1150,6 +1161,7 @@ function renderGraphSmooth(d) {
       interaction: { hover: true, tooltipDelay: 200 }
     };
     visNetwork = new vis.Network(container, data, options);
+    lastGraphContainer = container;
     visNetwork.on('click', params => {
       if (params.nodes.length) {
         activeTab = 'tabFindings';
