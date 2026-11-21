@@ -102,8 +102,20 @@ def tool_status():
         out[n] = {"installed": ok, "path": p if ok else None}
     gs = gvm_scan.status()
     out["openvas"] = {"installed": gs["reachable"], "path": f"{gvm_scan.HOST}:{gvm_scan.PORT}" if gs["configured"] else None}
-    out["defectdojo"] = {"installed": defectdojo.configured(), "path": defectdojo.URL or None}
+    out["defectdojo"] = {"installed": defectdojo.configured(), "path": _host_only(defectdojo.URL)}
     return out
+
+
+def _host_only(url):
+    """Do pokazania w /api/tools (widocznym dla każdej roli, nawet 'read') - bez userinfo,
+    na wypadek gdyby ktoś wpisał dane logowania wprost w ASI_DEFECTDOJO_URL."""
+    if not url:
+        return None
+    p = urlparse(url)
+    netloc = p.hostname or ""
+    if p.port:
+        netloc += f":{p.port}"
+    return f"{p.scheme}://{netloc}" if p.scheme else netloc
 
 
 class Ctx:
