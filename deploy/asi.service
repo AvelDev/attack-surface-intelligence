@@ -1,0 +1,17 @@
+# sudo cp deploy/asi.service /etc/systemd/system/ && sudo systemctl enable --now asi
+# Dostosuj User i ścieżki. Wystawiaj za reverse proxy z uwierzytelnianiem - API uruchamia skany!
+[Unit]
+Description=Attack Surface Intelligence PoC
+After=network-online.target
+
+[Service]
+User=asi
+WorkingDirectory=/opt/asi
+Environment=PATH=/usr/local/bin:/usr/bin:/bin:/home/asi/go/bin
+Environment=ASI_DB=/var/lib/asi/asi.db
+ExecStart=/opt/asi/.venv/bin/uvicorn asi.main:app --host 127.0.0.1 --port 8000
+Restart=on-failure
+StateDirectory=asi
+
+[Install]
+WantedBy=multi-user.target

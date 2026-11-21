@@ -1,0 +1,194 @@
+<!doctype html>
+<html lang="pl">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Attack Surface Intelligence</title>
+<style>
+:root{--bg:#0e1116;--panel:#161b22;--line:#2a313c;--fg:#e6edf3;--mut:#8b96a5;--acc:#4493f8;
+--critical:#ff5c5c;--high:#f0883e;--medium:#d29922;--low:#58a6ff;--info:#8b96a5;--ok:#3fb950}
+@media (prefers-color-scheme:light){:root{--bg:#f6f8fa;--panel:#fff;--line:#d0d7de;--fg:#1f2328;--mut:#59636e;--acc:#0969da}}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--fg);font:14px/1.45 system-ui,Segoe UI,sans-serif}
+header{padding:14px 20px;border-bottom:1px solid var(--line);display:flex;gap:12px;align-items:baseline}
+header h1{font-size:17px;margin:0}header span{color:var(--mut)}
+.layout{display:grid;grid-template-columns:320px 1fr;gap:16px;padding:16px 20px;max-width:1500px;margin:auto}
+@media(max-width:900px){.layout{grid-template-columns:1fr}}
+.card{background:var(--panel);border:1px solid var(--line);border-radius:8px;padding:14px;margin-bottom:16px}
+.card h2{font-size:13px;text-transform:uppercase;letter-spacing:.05em;color:var(--mut);margin:0 0 10px}
+input[type=text]{width:100%;padding:8px;border-radius:6px;border:1px solid var(--line);background:var(--bg);color:var(--fg)}
+label{display:flex;gap:8px;align-items:flex-start;margin:8px 0;color:var(--mut);font-size:13px}
+button{background:var(--acc);color:#fff;border:0;border-radius:6px;padding:8px 14px;cursor:pointer;font-weight:600}
+button:disabled{opacity:.5}
+.scan{padding:8px;border-radius:6px;cursor:pointer;border:1px solid transparent}
+.scan:hover,.scan.sel{background:var(--bg);border-color:var(--line)}
+.scan small{color:var(--mut);display:block}
+.pill{display:inline-block;padding:1px 8px;border-radius:10px;font-size:12px;font-weight:600;color:#0e1116}
+.s-critical{background:var(--critical)}.s-high{background:var(--high)}.s-medium{background:var(--medium)}
+.s-low{background:var(--low)}.s-info{background:var(--info)}
+.kpis{display:grid;grid-template-columns:repeat(auto-fit,minmax(120px,1fr));gap:10px}
+.kpi{background:var(--bg);border:1px solid var(--line);border-radius:8px;padding:10px}
+.kpi b{font-size:22px;display:block}.kpi span{color:var(--mut);font-size:12px}
+#graph{height:420px;border:1px solid var(--line);border-radius:8px;background:var(--bg)}
+table{width:100%;border-collapse:collapse}
+th,td{text-align:left;padding:6px 8px;border-bottom:1px solid var(--line);vertical-align:top}
+th{color:var(--mut);font-size:12px}
+td.fix{color:var(--mut);font-size:13px}
+pre{background:var(--bg);border:1px solid var(--line);border-radius:6px;padding:10px;max-height:260px;overflow:auto;font-size:12px;white-space:pre-wrap}
+.tool{display:inline-block;margin:2px 6px 2px 0}.ok{color:var(--ok)}.no{color:var(--mut)}
+.err{color:var(--critical);margin-top:8px}
+.diff li{margin:2px 0}.new{color:var(--critical)}.gone{color:var(--ok)}
+a{color:var(--acc)}
+</style>
+</head>
+<body>
+<header><h1>Attack Surface Intelligence</h1><span>PoC · mapa powierzchni ataku i priorytetyzacja ryzyka</span></header>
+<div class="layout">
+  <aside>
+    <div class="card">
+      <h2>Nowy skan</h2>
+      <input id="target" type="text" placeholder="example.com lub 203.0.113.5" autocomplete="off">
+      <label><input type="checkbox" id="auth"> Potwierdzam, że mam zgodę właściciela na skanowanie tego celu.</label>
+      <label><input type="checkbox" id="nuclei"> Skan podatności (nuclei) - wolniejszy, bardziej inwazyjny</label>
+      <button id="go">Uruchom skan</button>
+      <div class="err" id="err"></div>
+    </div>
+    <div class="card"><h2>Skany</h2><div id="scans"></div></div>
+    <div class="card"><h2>Narzędzia</h2><div id="tools"></div></div>
+  </aside>
+  <main id="main"><div class="card">Wybierz skan z listy lub uruchom nowy.</div></main>
+</div>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/vis-network/9.1.9/standalone/umd/vis-network.min.js"></script>
+<script>
+const $ = s => document.querySelector(s);
+const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+let current = null, timer = null, net = null;
+const COLORS = {domain:'#4493f8', subdomain:'#58a6ff', ip:'#a371f7', port:'#d29922', web:'#3fb950'};
+const SEVS = ['critical','high','medium','low','info'];
+const PL = {critical:'krytyczne', high:'wysokie', medium:'średnie', low:'niskie', info:'info'};
+
+async function api(path, opts) {
+  const r = await fetch(path, opts);
+  const j = await r.json().catch(() => ({}));
+  if (!r.ok) throw new Error(j.detail || r.statusText);
+  return j;
+}
+
+async function loadTools() {
+  const t = await api('/api/tools');
+  $('#tools').innerHTML = Object.entries(t).map(([n, v]) =>
+    `<span class="tool ${v.installed ? 'ok' : 'no'}">${v.installed ? '●' : '○'} ${esc(n)}</span>`).join('') +
+    '<div style="color:var(--mut);font-size:12px;margin-top:6px">○ = brak narzędzia, użyty zamiennik w Pythonie</div>';
+  if (t.nuclei.installed) $('#nuclei').checked = true;
+}
+
+async function loadScans() {
+  const list = await api('/api/scans');
+  $('#scans').innerHTML = list.map(s => `
+    <div class="scan ${s.id === current ? 'sel' : ''}" data-id="${s.id}">
+      <b>${esc(s.target)}</b> <span class="pill s-${s.score >= 60 ? 'critical' : s.score >= 30 ? 'medium' : 'low'}">${s.score}</span>
+      <small>#${s.id} · ${esc(s.status)} · ${esc(s.stage)} · ustaleń: ${s.findings}</small>
+    </div>`).join('') || '<small>Brak skanów</small>';
+  document.querySelectorAll('.scan').forEach(el => el.onclick = () => select(+el.dataset.id));
+}
+
+function select(id) { current = id; refresh(); }
+
+async function refresh() {
+  clearTimeout(timer);
+  await loadScans();
+  if (!current) return;
+  const d = await api('/api/scans/' + current);
+  render(d);
+  if (['queued', 'running'].includes(d.scan.status)) timer = setTimeout(refresh, 2000);
+}
+
+function render(d) {
+  const s = d.scan, kinds = {};
+  d.assets.forEach(a => kinds[a.kind] = (kinds[a.kind] || 0) + 1);
+  const running = ['queued', 'running'].includes(s.status);
+  $('#main').innerHTML = `
+    <div class="card"><h2>Skan #${s.id} · ${esc(s.target)} · ${esc(s.status)}${running ? ' · ' + esc(s.stage) : ''}</h2>
+      <div class="kpis">
+        <div class="kpi"><b>${s.score}/100</b><span>wynik ryzyka</span></div>
+        ${SEVS.slice(0, 4).map(k => `<div class="kpi"><b style="color:var(--${k})">${d.counts[k] || 0}</b><span>${PL[k]}</span></div>`).join('')}
+        <div class="kpi"><b>${d.assets.length}</b><span>zasobów (${Object.entries(kinds).map(([k, v]) => esc(k) + ' ' + v).join(', ')})</span></div>
+      </div>
+      ${running ? '' : `<p><a href="/api/scans/${s.id}/report" target="_blank">Raport (PDF/druk)</a> ·
+        <a href="/api/scans/${s.id}/export.json">JSON</a> · <a href="/api/scans/${s.id}/export.csv">CSV</a> ·
+        <a href="#" id="rescan">Skanuj ponownie</a> · <a href="#" id="del" style="color:var(--critical)">Usuń</a></p>`}
+    </div>
+    ${d.diff ? diffCard(d.diff) : ''}
+    <div class="card"><h2>Graf powierzchni ataku</h2><div id="graph"></div></div>
+    <div class="card"><h2>Ustalenia (${d.findings.length})</h2>${findingsTable(d.findings)}</div>
+    <div class="card"><h2>Zasoby</h2>${assetsTable(d.assets)}</div>
+    <div class="card"><h2>Log</h2><pre id="log">${esc(s.log)}</pre></div>`;
+  drawGraph(d);
+  if ($('#rescan')) {
+    $('#rescan').onclick = async e => { e.preventDefault();
+      const r = await api('/api/scans', {method: 'POST', headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({target: s.target, authorized: true, nuclei: $('#nuclei').checked})}); select(r.id); };
+    $('#del').onclick = async e => { e.preventDefault();
+      if (!confirm('Usunąć skan #' + s.id + '?')) return;
+      await api('/api/scans/' + s.id, {method: 'DELETE'}); current = null;
+      $('#main').innerHTML = '<div class="card">Skan usunięty.</div>'; loadScans(); };
+  }
+  document.querySelectorAll('.sevf').forEach(b => b.onclick = () => {
+    const v = b.dataset.s;
+    document.querySelectorAll('#ftable tr[data-s]').forEach(r => r.style.display = (v === 'all' || r.dataset.s === v) ? '' : 'none');
+  });
+  const log = $('#log'); log.scrollTop = log.scrollHeight;
+}
+
+function diffCard(df) {
+  const li = (arr, cls, f) => arr.map(x => `<li class="${cls}">${esc(f(x))}</li>`).join('');
+  const empty = !df.new_assets.length && !df.removed_assets.length && !df.new_findings.length && !df.resolved_findings.length;
+  return `<div class="card"><h2>Zmiany względem skanu #${df.against}</h2>${empty ? 'Bez zmian.' : `<ul class="diff">
+    ${li(df.new_assets, 'new', x => '+ nowy zasób: ' + x)}${li(df.removed_assets, 'gone', x => '- zniknął: ' + x)}
+    ${li(df.new_findings, 'new', x => '+ nowe ustalenie: ' + x.title + ' (' + x.asset + ')')}
+    ${li(df.resolved_findings, 'gone', x => '- naprawione: ' + x.title + ' (' + x.asset + ')')}</ul>`}</div>`;
+}
+
+function findingsTable(f) {
+  if (!f.length) return '<small>Brak ustaleń.</small>';
+  return `<p>Filtr: <button class="sevf" data-s="all">wszystkie</button> ` +
+    SEVS.map(k => `<button class="sevf" data-s="${k}">${PL[k]}</button>`).join(' ') + `</p>` +
+    `<table id="ftable"><tr><th>Waga</th><th>Ustalenie</th><th>Zasób</th><th>Zalecenie</th><th>Źródło</th></tr>` +
+    f.map(x => `<tr data-s="${esc(x.severity)}"><td><span class="pill s-${esc(x.severity)}">${esc(PL[x.severity] || x.severity)}</span></td>
+      <td>${esc(x.title)}<br><small style="color:var(--mut)">${esc(x.detail)}</small></td>
+      <td>${esc(x.asset)}</td><td class="fix">${esc(x.fix)}</td><td>${esc(x.source)}</td></tr>`).join('') + '</table>';
+}
+
+function assetsTable(a) {
+  const info = x => x.kind === 'web' ? `${x.data.status} ${x.data.title || ''} ${x.data.server || ''} ${(x.data.tech || []).join(', ')}`
+    : x.kind === 'port' ? `${x.data.service || ''} ${x.data.version || ''}` : '';
+  return `<table><tr><th>Typ</th><th>Wartość</th><th>Szczegóły</th></tr>` +
+    a.map(x => `<tr><td>${esc(x.kind)}</td><td>${esc(x.value)}</td><td>${esc(info(x))}</td></tr>`).join('') + '</table>';
+}
+
+function drawGraph(d) {
+  const el = $('#graph');
+  if (typeof vis === 'undefined') { el.innerHTML = '<p style="padding:12px;color:var(--mut)">Biblioteka vis-network nie załadowała się (brak internetu?). Tabele poniżej działają normalnie.</p>'; return; }
+  const worst = {};
+  d.findings.forEach(f => { const o = SEVS.indexOf(worst[f.asset] ?? 'info'); if (SEVS.indexOf(f.severity) <= o || !worst[f.asset]) worst[f.asset] = f.severity; });
+  const nodes = d.assets.map(a => ({id: a.id, label: a.kind === 'web' ? a.value.replace(/^https?:\/\//, '') : a.value,
+    color: {background: COLORS[a.kind] || '#888', border: worst[a.id] ? getComputedStyle(document.documentElement).getPropertyValue('--' + worst[a.id]) : 'transparent'},
+    borderWidth: worst[a.id] ? 4 : 1, shape: a.kind === 'port' ? 'box' : 'dot', size: a.kind === 'domain' ? 22 : 12,
+    font: {color: getComputedStyle(document.body).color, size: 11}}));
+  net = new vis.Network(el, {nodes: new vis.DataSet(nodes), edges: new vis.DataSet(d.edges.map(e => ({from: e.src, to: e.dst})))},
+    {physics: {stabilization: {iterations: 150}, barnesHut: {springLength: 90}}, edges: {color: '#667', smooth: false}, interaction: {hover: true}});
+}
+
+$('#go').onclick = async () => {
+  $('#err').textContent = '';
+  try {
+    const r = await api('/api/scans', {method: 'POST', headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({target: $('#target').value, authorized: $('#auth').checked, nuclei: $('#nuclei').checked})});
+    select(r.id);
+  } catch (e) { $('#err').textContent = e.message; }
+};
+loadTools(); loadScans();
+</script>
+</body>
+</html>

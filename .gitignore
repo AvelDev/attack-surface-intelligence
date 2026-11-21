@@ -1,0 +1,7 @@
+pass.txt
+*.txt.bak
+data/
+*.db
+__pycache__/
+.venv/
+.env
