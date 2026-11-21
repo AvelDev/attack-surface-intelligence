@@ -1,6 +1,6 @@
 # Attack Surface Intelligence - PoC
 
-Web UI (FastAPI + vanilla JS) orkiestrujące narzędzia z Kali/Ubuntu: subfinder → dnsx → naabu/nmap → httpx → (opcjonalnie) nuclei.
+Web UI (FastAPI + panel Vite/React) orkiestrujące narzędzia z Kali/Ubuntu: subfinder → dnsx → naabu/nmap → httpx → (opcjonalnie) nuclei.
 Brakujące narzędzie zastępuje fallback w czystym Pythonie. Wynik: graf zasobów, ustalenia z zaleceniami, wynik ryzyka 0-100,
 diff względem poprzedniego skanu tego samego celu oraz raport HTML.
 
@@ -14,9 +14,34 @@ Jedna komenda, bez WSL/Kali/ręcznej instalacji `go install` - wszystkie narzęd
 
 `network_mode: host` w `docker-compose.yml` wymaga natywnego Dockera na Linuksie (jedyny
 sposób, żeby kontener widział realną sieć LAN do skanowania). Na Docker Desktop
-(Windows/Mac) usuń tę linię i odkomentuj `ports: ["8000:8000"]` - skanowanie będzie wtedy
-ograniczone do tego, co widoczne z wirtualnej maszyny Docker Desktop. Zmienne środowiskowe
+(Windows/Mac) użyj nakładki, która zamienia host network na port `127.0.0.1:8000`
+(inny adres/port: `ASI_PUBLISH=0.0.0.0:8000`):
+
+    docker compose -f docker-compose.yml -f docker-compose.desktop.yml up -d --build
+
+Skanowanie internetu działa wtedy normalnie, LAN hosta jest widoczny tylko częściowo.
+
+Test dymny obrazu (build, panel, logowanie, 6 narzędzi, healthcheck, opcjonalnie pełny skan):
+
+    bash scripts/docker_smoke_test.sh                  # bez skanu
+    bash scripts/docker_smoke_test.sh scanme.nmap.org  # + skan celu, na który masz zgodę Zmienne środowiskowe
 (sekcje niżej) ustaw przez plik `.env` obok `docker-compose.yml` albo `environment:` w pliku.
+
+## Panel operacyjny
+`/` to panel „co się zmieniło od ostatniego przebiegu i czy to prawda” (React, `frontend/`):
+zmiany od przebiegu (A), mapa przestrzeni adresowej z kafelkami /24 i pasmami portów dla małych
+zakresów (B), kolejka triage z eksportem do DefectDojo (C), tabela zakresów z oknem skanu jako
+budżetem czasu, notatką i przyciskiem uruchom/zatrzymaj (D). Akcje zależą od roli. Pełna obsługa
+klawiaturą (`?` pokazuje skróty), PL/EN, motyw ciemny i jasny. Widoki spoza panelu (skan, sygnatury,
+harmonogram, użytkownicy) są w starym UI pod `/legacy`.
+
+Obraz Dockera buduje panel sam (etap `node`). Ręcznie: `cd frontend && npm ci && npm run build`
+(serwer podaje `frontend/dist`, a bez niego wraca do starego UI). Tryb deweloperski: `npm run dev`
+(proxy `/api` → `127.0.0.1:8000`).
+
+Dane demonstracyjne (syntetyczne, oznaczone w notatkach zakresów; nie uruchamiają żadnego skanu):
+
+    ASI_DB=data/demo.db ASI_SECRET_KEY_FILE=data/demo.key python scripts/seed_demo.py --force
 
 ## Uruchomienie - ręczne (Ubuntu / WSL, bez Dockera)
     bash scripts/install_tools.sh   # nmap + narzędzia ProjectDiscovery (go install)

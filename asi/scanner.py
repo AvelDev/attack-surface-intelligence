@@ -182,6 +182,9 @@ class Ctx:
             c.execute("UPDATE scans SET log=? WHERE id=?", (crypto.enc(new_log), self.id))
 
     def stage(self, name):
+        # Granica etapu to bezpieczny punkt na zatrzymanie (ręczne lub okno czasowe) -
+        # inaczej długie etapy poza skanem portów nie reagowałyby na "Wstrzymaj".
+        self.check_time_limit()
         self.log(f"=== {name} ===")
         with db.conn() as c:
             c.execute("UPDATE scans SET stage=? WHERE id=?", (name, self.id))
@@ -199,6 +202,9 @@ class Ctx:
             self._conn.commit()
 
     def check_time_limit(self):
+        row = self._conn.execute("SELECT stop_requested FROM scans WHERE id=?", (self.id,)).fetchone()
+        if row and row["stop_requested"]:
+            raise ScanStopped("Skan zatrzymany ręcznie przez operatora")
         limit_m = self.opts.get("time_window_mins")
         if limit_m and (time.time() - self.created) > (int(limit_m) * 60):
             raise TimeoutError(f"Przekroczono okno czasowe skanu ({limit_m} min)")
@@ -233,10 +239,15 @@ class Ctx:
     def finish(self, status):
         sev = [r["severity"] for r in self._conn.execute(
             "SELECT severity FROM findings WHERE scan_id=?", (self.id,))]
-        stage_txt = "zakończony" if status == "done" else ("okno czasowe (wstrzymany)" if status == "paused_window" else "błąd")
+        stage_txt = {"done": "zakończony", "paused_window": "okno czasowe (wstrzymany)",
+                     "stopped": "zatrzymany ręcznie"}.get(status, "błąd")
         self._conn.execute("UPDATE scans SET status=?, stage=?, score=?, finished=?, duration_s=? WHERE id=?",
                            (status, stage_txt, risk_score(sev), time.time(), time.time() - self.created, self.id))
         self._conn.commit()
+
+
+class ScanStopped(Exception):
+    """Operator zażądał zatrzymania skanu (POST /api/scans/{id}/stop)."""
 
 
 def risk_score(severities):
@@ -824,6 +835,9 @@ def run_scan(scan_id):
                 c.execute("UPDATE scans SET status='running' WHERE id=?", (scan_id,))
             pipeline(ctx)
             ctx.finish("done")
+        except ScanStopped as st:
+            ctx.log(f"ZATRZYMANO: {st}")
+            ctx.finish("stopped")
         except TimeoutError as te:
             ctx.log(f"WSTRZYMANO: {te} - wznowienie nastąpi w kolejnym oknie czasowym.")
             ctx.finish("paused_window")
