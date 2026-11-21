@@ -55,6 +55,16 @@ CREATE TABLE IF NOT EXISTS sessions(
   created REAL NOT NULL,
   expires REAL NOT NULL
 );
+CREATE TABLE IF NOT EXISTS signatures(
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  name TEXT NOT NULL,
+  type TEXT NOT NULL,
+  pattern TEXT NOT NULL,
+  severity TEXT NOT NULL DEFAULT 'low',
+  title TEXT NOT NULL DEFAULT '',
+  fix TEXT NOT NULL DEFAULT '',
+  enabled INTEGER NOT NULL DEFAULT 1
+);
 """
 
 

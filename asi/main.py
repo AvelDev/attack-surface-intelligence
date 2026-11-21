@@ -14,6 +14,7 @@ from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, Response
 from pydantic import BaseModel
 
 from . import auth, crypto, db, scanner
+from . import signatures as signatures_mod
 from . import targets as targets_mod
 
 app = FastAPI(title="Attack Surface Intelligence PoC")
@@ -85,6 +86,55 @@ def delete_user_ep(uid: int, user: dict = Depends(auth.require("admin"))):
     with db.conn() as c:
         c.execute("DELETE FROM sessions WHERE user_id=?", (uid,))
         c.execute("DELETE FROM users WHERE id=?", (uid,))
+    return {"ok": True}
+
+
+class SignatureReq(BaseModel):
+    name: str
+    type: str
+    pattern: str
+    severity: str = "low"
+    title: str = ""
+    fix: str = ""
+    enabled: bool = True
+
+
+def _validate_signature(req):
+    if req.type not in signatures_mod.TYPES:
+        raise HTTPException(400, f"Typ musi być jednym z: {', '.join(signatures_mod.TYPES)}")
+    if req.severity not in SEV_ORDER:
+        raise HTTPException(400, "Nieprawidłowa waga.")
+
+
+@app.get("/api/signatures")
+def list_signatures(user: dict = Depends(auth.require("read"))):
+    return signatures_mod.list_all(enabled_only=False)
+
+
+@app.post("/api/signatures")
+def create_signature(req: SignatureReq, user: dict = Depends(auth.require("add_remove_modify"))):
+    _validate_signature(req)
+    with db.conn() as c:
+        c.execute("INSERT INTO signatures(name,type,pattern,severity,title,fix,enabled) VALUES(?,?,?,?,?,?,?)",
+                  (req.name, req.type, req.pattern, req.severity, req.title, req.fix, int(req.enabled)))
+    return {"ok": True}
+
+
+@app.patch("/api/signatures/{sid}")
+def update_signature(sid: int, req: SignatureReq, user: dict = Depends(auth.require("read_modify"))):
+    _validate_signature(req)
+    with db.conn() as c:
+        cur = c.execute("UPDATE signatures SET name=?,type=?,pattern=?,severity=?,title=?,fix=?,enabled=? WHERE id=?",
+                        (req.name, req.type, req.pattern, req.severity, req.title, req.fix, int(req.enabled), sid))
+        if cur.rowcount == 0:
+            raise HTTPException(404, "Nie ma takiej sygnatury.")
+    return {"ok": True}
+
+
+@app.delete("/api/signatures/{sid}")
+def delete_signature(sid: int, user: dict = Depends(auth.require("add_remove_modify"))):
+    with db.conn() as c:
+        c.execute("DELETE FROM signatures WHERE id=?", (sid,))
     return {"ok": True}
 
 

@@ -96,6 +96,32 @@ a{color:var(--acc)}
     </div>
     <div class="card"><h2>Skany</h2><div id="scans"></div></div>
     <div class="card"><h2>Narzędzia</h2><div id="tools"></div></div>
+    <div class="card" id="sigCard">
+      <h2>Własne sygnatury</h2>
+      <div id="sigList" class="hint">Ładowanie…</div>
+      <h3>Dodaj sygnaturę</h3>
+      <div class="field"><span>Nazwa</span><input id="sName" type="text" placeholder="np. Jenkins po nagłówku"></div>
+      <div class="field"><span>Typ</span>
+        <select id="sType" style="width:100%;padding:9px 10px;border-radius:7px;border:1px solid var(--line);background:var(--bg);color:var(--fg)">
+          <option value="header_present">header_present - nagłówek obecny</option>
+          <option value="cookie_name">cookie_name - nazwa ciasteczka</option>
+          <option value="html_regex">html_regex - wzorzec w HTML</option>
+          <option value="footer_version_regex">footer_version_regex - wersja w stopce</option>
+          <option value="path_check">path_check - ścieżka istnieje (/admin, /version)</option>
+          <option value="favicon_hash">favicon_hash - SHA-256 favicony</option>
+        </select>
+      </div>
+      <div class="field"><span>Wzorzec</span><input id="sPattern" type="text" placeholder="np. X-Jenkins albo /admin"></div>
+      <div class="field"><span>Waga</span>
+        <select id="sSeverity" style="width:100%;padding:9px 10px;border-radius:7px;border:1px solid var(--line);background:var(--bg);color:var(--fg)">
+          <option value="info">info</option><option value="low" selected>low</option>
+          <option value="medium">medium</option><option value="high">high</option><option value="critical">critical</option>
+        </select>
+      </div>
+      <div class="field"><span>Zalecenie (opcjonalnie)</span><input id="sFix" type="text"></div>
+      <button id="sAdd" class="secondary">Dodaj sygnaturę</button>
+      <div class="err" id="sErr"></div>
+    </div>
   </aside>
   <main id="main"><div class="card">Wybierz skan z listy lub uruchom nowy.</div></main>
 </div>
@@ -117,6 +143,31 @@ async function api(path, opts) {
   if (!r.ok) throw new Error(j.detail || r.statusText);
   return j;
 }
+
+async function loadSignatures() {
+  const list = await api('/api/signatures');
+  $('#sigList').innerHTML = list.length ? `<table><tr><th>Nazwa</th><th>Typ</th><th>Wzorzec</th><th>Waga</th><th></th></tr>` +
+    list.map(s => `<tr><td>${esc(s.name)}</td><td>${esc(s.type)}</td><td>${esc(s.pattern)}</td>
+      <td><span class="pill s-${esc(s.severity)}">${esc(PL[s.severity] || s.severity)}</span></td>
+      <td><a href="#" class="sigDel" data-id="${s.id}" style="color:var(--critical)">usuń</a></td></tr>`).join('') + '</table>'
+    : '<p class="hint">Brak własnych sygnatur.</p>';
+  document.querySelectorAll('.sigDel').forEach(a => a.onclick = async e => {
+    e.preventDefault();
+    await api('/api/signatures/' + a.dataset.id, {method: 'DELETE'});
+    loadSignatures();
+  });
+}
+
+$('#sAdd').onclick = async () => {
+  $('#sErr').textContent = '';
+  try {
+    await api('/api/signatures', {method: 'POST', headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({name: $('#sName').value, type: $('#sType').value, pattern: $('#sPattern').value,
+        severity: $('#sSeverity').value, fix: $('#sFix').value})});
+    $('#sName').value = ''; $('#sPattern').value = ''; $('#sFix').value = '';
+    loadSignatures();
+  } catch (e) { $('#sErr').textContent = e.message; }
+};
 
 async function loadTools() {
   const t = await api('/api/tools');
@@ -281,7 +332,8 @@ async function startApp(me) {
   $('#whoami').innerHTML = `${esc(me.username)} (${esc(me.role)}) · <a href="#" id="logout">wyloguj</a>`;
   $('#logout').onclick = async e => { e.preventDefault(); await api('/api/logout', {method: 'POST'}); location.reload(); };
   $('#newScanCard').style.display = me.role === 'read' ? 'none' : '';
-  loadTools(); loadScans();
+  $('#sAdd').style.display = me.role === 'read' ? 'none' : '';
+  loadTools(); loadScans(); loadSignatures();
 }
 
 $('#loginBtn').onclick = async () => {

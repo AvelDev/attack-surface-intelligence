@@ -21,7 +21,7 @@ import xml.etree.ElementTree as ET
 from concurrent.futures import ThreadPoolExecutor
 from urllib.parse import urlparse
 
-from . import crypto, db, gvm_scan
+from . import crypto, db, gvm_scan, signatures
 
 os.environ["PATH"] = os.environ.get("PATH", "") + os.pathsep + os.path.expanduser("~/go/bin")
 
@@ -415,7 +415,7 @@ def http_probe(url):
     h = {k.lower(): v for k, v in r.headers.items()}
     return {"url": url, "status": r.status if hasattr(r, "status") else r.code,
             "title": re.sub(r"\s+", " ", m.group(1)).strip()[:120] if m else "",
-            "server": h.get("server", ""), "tech": [], "headers": h}
+            "server": h.get("server", ""), "tech": [], "headers": h, "body": body[:20000]}
 
 
 def probe_web(ctx, urls, tools):
@@ -556,6 +556,7 @@ def pipeline(ctx):
             continue
         host, ip, port = meta
         hdr = w.pop("headers", {})
+        body = w.pop("body", "")
         wid = ctx.asset("web", url, w)
         ctx.edge(port_id.get((ip, port), root_id.get(host, f"subdomain:{host}")), wid)
         st = w["status"]
@@ -578,6 +579,7 @@ def pipeline(ctx):
         if ADMIN_RE.search(w.get("title", "")) and st < 500:
             ctx.finding(wid, "medium", "Potencjalny panel administracyjny/logowania dostępny publicznie",
                         "builtin", f"{url} - \"{w['title']}\"", "Ogranicz dostęp (VPN, allowlista IP, MFA).")
+        signatures.apply(ctx, url, hdr, body)
 
     if ctx.opts.get("nuclei") and tools["nuclei"]["installed"] and webs:
         ctx.stage("Skan podatności (nuclei)")
