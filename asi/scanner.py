@@ -21,7 +21,7 @@ import xml.etree.ElementTree as ET
 from concurrent.futures import ThreadPoolExecutor
 from urllib.parse import urlparse
 
-from . import db, gvm_scan
+from . import crypto, db, gvm_scan
 
 os.environ["PATH"] = os.environ.get("PATH", "") + os.pathsep + os.path.expanduser("~/go/bin")
 
@@ -116,7 +116,9 @@ class Ctx:
     def log(self, msg):
         line = time.strftime("%H:%M:%S ") + str(msg)[:600] + "\n"
         with db.conn() as c:
-            c.execute("UPDATE scans SET log = log || ? WHERE id=?", (line, self.id))
+            cur = c.execute("SELECT log FROM scans WHERE id=?", (self.id,)).fetchone()
+            new_log = crypto.dec(cur["log"]) + line  # log jest szyfrowany - nie da się appendować w SQL
+            c.execute("UPDATE scans SET log=? WHERE id=?", (crypto.enc(new_log), self.id))
 
     def stage(self, name):
         self.log(f"=== {name} ===")
@@ -127,7 +129,7 @@ class Ctx:
         aid = f"{kind}:{value}"
         with db.conn() as c:
             c.execute("INSERT OR REPLACE INTO assets(scan_id,id,kind,value,data) VALUES(?,?,?,?,?)",
-                      (self.id, aid, kind, value, json.dumps(data or {})))
+                      (self.id, aid, kind, value, crypto.enc(json.dumps(data or {}))))
         return aid
 
     def edge(self, src, dst):
@@ -142,7 +144,7 @@ class Ctx:
         self._seen_f.add(key)
         with db.conn() as c:
             c.execute("INSERT INTO findings VALUES(?,?,?,?,?,?,?)",
-                      (self.id, asset, sev, title, source, detail[:1000], fix))
+                      (self.id, asset, sev, title, source, crypto.enc(detail[:1000]), fix))
 
     def hosts_total(self, n):
         with db.conn() as c:

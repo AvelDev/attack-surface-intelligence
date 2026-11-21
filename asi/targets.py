@@ -49,10 +49,13 @@ def expand(raw_items):
         except ValueError:
             net = None
         if net is not None:
-            hosts = [net.network_address] if net.num_addresses == 1 else list(net.hosts())
-            if len(out) + len(hosts) > MAX_TARGETS:
+            # num_addresses jest O(1) (z długości prefiksu) - sprawdzamy PRZED materializacją
+            # listy hostów, inaczej np. "10.0.0.0/8" albo dowolny duży prefiks IPv6 zaalokowałby
+            # miliony/miliardy obiektów zanim limit w ogóle zadziała (DoS pojedynczym wpisem).
+            if net.num_addresses > MAX_TARGETS - len(out):
                 errors.append((raw, f"za duży zakres - limit {MAX_TARGETS} celów na skan (ASI_MAX_TARGETS)"))
                 continue
+            hosts = [net.network_address] if net.num_addresses == 1 else list(net.hosts())
             for ip in hosts:
                 ip = str(ip)
                 if ip in seen:

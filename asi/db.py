@@ -41,6 +41,20 @@ CREATE TABLE IF NOT EXISTS findings(
   title TEXT NOT NULL, source TEXT NOT NULL, detail TEXT NOT NULL DEFAULT '',
   fix TEXT NOT NULL DEFAULT ''
 );
+CREATE TABLE IF NOT EXISTS users(
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  username TEXT NOT NULL UNIQUE,
+  password_hash TEXT NOT NULL,
+  salt TEXT NOT NULL,
+  role TEXT NOT NULL,
+  created REAL NOT NULL
+);
+CREATE TABLE IF NOT EXISTS sessions(
+  token TEXT PRIMARY KEY,
+  user_id INTEGER NOT NULL,
+  created REAL NOT NULL,
+  expires REAL NOT NULL
+);
 """
 
 

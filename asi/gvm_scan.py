@@ -17,7 +17,7 @@ import socket as socketlib
 import threading
 import time
 
-from . import db
+from . import crypto, db
 
 try:
     # AbstractGvmConnection nie jest re-eksportowana z gvm.connections (tylko Protocol
@@ -167,7 +167,7 @@ def _run(scan_id, hosts, log):
                 aid = f"ip:{host}" if host else f"scan:{scan_id}"
                 c.execute("INSERT INTO findings VALUES(?,?,?,?,?,?,?)",
                           (scan_id, aid, sev, (r.findtext("name") or "?")[:200], "openvas",
-                           (r.findtext("description") or "")[:1000],
+                           crypto.enc((r.findtext("description") or "")[:1000]),
                            f"Zob. szczegóły NVT {oid} w raporcie GVM."))
                 n += 1
         _bump_score(scan_id)

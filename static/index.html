@@ -45,10 +45,18 @@ a{color:var(--acc)}
 </style>
 </head>
 <body>
-<header><h1>Attack Surface Intelligence</h1><span>PoC · mapa powierzchni ataku i priorytetyzacja ryzyka</span></header>
-<div class="layout">
+<header><h1>Attack Surface Intelligence</h1><span>PoC · mapa powierzchni ataku i priorytetyzacja ryzyka</span>
+  <span id="whoami" style="margin-left:auto"></span></header>
+<div class="card" id="loginCard" style="max-width:360px;margin:40px auto;display:none">
+  <h2>Logowanie</h2>
+  <input id="luser" type="text" placeholder="login" autocomplete="username">
+  <input id="lpass" type="password" placeholder="hasło" autocomplete="current-password" style="margin-top:6px">
+  <button id="loginBtn" style="margin-top:8px">Zaloguj</button>
+  <div class="err" id="loginErr"></div>
+</div>
+<div class="layout" id="appLayout" style="display:none">
   <aside>
-    <div class="card">
+    <div class="card" id="newScanCard">
       <h2>Nowy skan</h2>
       <textarea id="target" placeholder="example.com, 203.0.113.5, 198.51.100.0/24 - jeden na linię lub po przecinku" autocomplete="off"></textarea>
       <input id="rate" type="number" min="10" placeholder="limit pakietów/s (domyślnie 300)" style="margin-top:6px">
@@ -235,7 +243,29 @@ $('#goFile').onclick = async () => {
     showWarnings(r); select(r.id);
   } catch (e) { $('#err').textContent = e.message; }
 };
-loadTools(); loadScans();
+
+async function startApp(me) {
+  $('#loginCard').style.display = 'none';
+  $('#appLayout').style.display = '';
+  $('#whoami').innerHTML = `${esc(me.username)} (${esc(me.role)}) · <a href="#" id="logout">wyloguj</a>`;
+  $('#logout').onclick = async e => { e.preventDefault(); await api('/api/logout', {method: 'POST'}); location.reload(); };
+  $('#newScanCard').style.display = me.role === 'read' ? 'none' : '';
+  loadTools(); loadScans();
+}
+
+$('#loginBtn').onclick = async () => {
+  $('#loginErr').textContent = '';
+  try {
+    const me = await api('/api/login', {method: 'POST', headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({username: $('#luser').value, password: $('#lpass').value})});
+    startApp(me);
+  } catch (e) { $('#loginErr').textContent = e.message; }
+};
+
+(async () => {
+  try { startApp(await api('/api/me')); }
+  catch (e) { $('#loginCard').style.display = ''; }
+})();
 </script>
 </body>
 </html>
