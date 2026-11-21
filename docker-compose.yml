@@ -1,8 +1,14 @@
 # docker compose up --build   ->   http://127.0.0.1:8000
 # Port jest wystawiony tylko na localhost hosta. API uruchamia skany i przechowuje klucze: nie wystawiaj go publicznie bez uwierzytelnienia.
+# Wycofanie zmian: obrazy są tagowane wersją (ASI_VERSION). Powrót do poprzedniej:
+#   ASI_VERSION=<poprzednia> docker compose up -d     (przed aktualizacją zrób kopię wolumenu asi-data - patrz README)
 services:
   asi:
-    build: .
+    build:
+      context: .
+      args:
+        ASI_VERSION: "${ASI_VERSION:-dev}"
+    image: "asi:${ASI_VERSION:-dev}"
     ports:
       - "127.0.0.1:8000:8000"
     volumes:
@@ -14,6 +20,7 @@ services:
       # ASI_HIBP_API_KEY: ""
       # ASI_WEBHOOK_URL: ""
       ASI_ALLOWED_TARGETS: "${ASI_ALLOWED_TARGETS:-}"
+      ASI_SCHEDULER: "${ASI_SCHEDULER:-1}"  # 0 = wyłącz automatyczne skany (np. awaryjnie)
     restart: unless-stopped
 volumes:
   asi-data:

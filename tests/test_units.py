@@ -24,7 +24,7 @@ NMAP_XML = """<?xml version="1.0"?><nmaprun>
 # ---------- domena ----------
 def test_domain_spec_is_consistent():
     assert domain.SEVERITIES == ["critical", "high", "medium", "low", "info"]
-    assert domain.URGENT <= set(domain.SEVERITIES)
+    assert domain.URGENT.issubset(domain.SEVERITIES)
     assert domain.DEFAULT_INTERVAL in domain.INTERVALS
 
 
