@@ -25,8 +25,9 @@ COPY --from=tools /go/bin/* /usr/local/bin/
 # Pozwala na szybszy SYN scan (naabu -s s) zamiast domyślnego, wolnego connect scan - w
 # praktyce i tak nadpisane przez cap_add w docker-compose.yml (kontener i tak chodzi jako
 # root), ale zostaje jako zabezpieczenie na wypadek uruchomienia obrazu inaczej (np. z
-# dodanym tylko NET_RAW dla non-root usera).
-RUN setcap cap_net_raw,cap_net_admin=eip /usr/local/bin/naabu || true
+# dodanym tylko NET_RAW dla non-root usera). Samo NET_RAW wystarcza do craftowania pakietów
+# SYN - NET_ADMIN (kontrola interfejsów sieciowych) nie jest do tego potrzebne.
+RUN setcap cap_net_raw=eip /usr/local/bin/naabu || true
 
 WORKDIR /app
 COPY requirements.txt .
@@ -43,4 +44,8 @@ ENV ASI_HOST=0.0.0.0 \
 
 VOLUME ["/data"]
 EXPOSE 8000
-CMD ["uvicorn", "asi.main:app", "--host", "0.0.0.0", "--port", "8000"]
+# Forma powłokowa (nie JSON-exec), żeby ASI_HOST/ASI_PORT z environment: w compose faktycznie
+# się podstawiały - wcześniej CMD miał te wartości wbite na trwałe i zmienne nic nie zmieniały.
+# Domyślnie 0.0.0.0 jest świadome: to narzędzie demo ma być dostępne z innych maszyn w sieci
+# (jury na swoim laptopie) - kto chce ograniczyć do localhost, ustawia ASI_HOST=127.0.0.1.
+CMD uvicorn asi.main:app --host ${ASI_HOST} --port ${ASI_PORT}

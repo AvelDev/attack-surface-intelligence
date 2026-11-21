@@ -14,7 +14,7 @@ services:
     # ports:
     #   - "8000:8000"
     cap_drop: ["ALL"]
-    cap_add: ["NET_RAW", "NET_ADMIN"]  # wymagane do SYN scan (naabu) i wykrywania alive hostów
+    cap_add: ["NET_RAW"]  # wymagane do SYN scan (naabu/nmap) - NET_ADMIN nie jest do tego potrzebne
     restart: unless-stopped
     volumes:
       - asi-data:/data
