@@ -15,7 +15,9 @@ import time
 import urllib.error
 import urllib.parse
 
-from . import config, net, settings
+from .. import config, net, settings
+from .ports import SENSITIVE_PORTS
+
 KEV_URL = "https://www.cisa.gov/sites/default/files/feeds/known_exploited_vulnerabilities.json"
 CVE_RE = re.compile(r"^CVE-\d{4}-\d{4,}$")
 MAX_CVE_PER_IP = 8
@@ -159,7 +161,7 @@ def enrich(ctx, ips, root, target, ip_target):
                 ctx.log(f"  Censys {ip}: porty {cp['ports']}")
                 for port in cp["ports"]:
                     aid = f"port:{ip}:{port}"
-                    if not ctx.has_asset(aid) and port in (21, 23, 445, 3389, 5900, 3306, 5432, 6379, 27017, 9200, 1433):
+                    if not ctx.has_asset(aid) and port in SENSITIVE_PORTS:
                         ctx.finding(ip_id, "medium", f"Censys widzi otwarty port {port}, którego nie potwierdził skan",
                                     "censys", f"{ip}:{port}", "Sprawdź, czy usługa jest dostępna z innych lokalizacji (firewall geograficzny, "
                                     "reguły czasowe) i zamknij ją, jeśli nie jest potrzebna.")

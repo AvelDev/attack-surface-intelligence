@@ -1,7 +1,7 @@
 import pytest
 
-from asi import alerts, checks, scanner, scheduler, settings
-from asi import db
+from asi import alerts, db, domain, net, scheduler, settings, targets
+from asi.scan import checks
 from tests.conftest import seed_scan
 
 
@@ -12,27 +12,27 @@ from tests.conftest import seed_scan
     ("45.33.32.156", "45.33.32.156"),
 ])
 def test_normalize_target_accepts(raw, expected):
-    assert scanner.normalize_target(raw) == expected
+    assert targets.normalize(raw) == expected
 
 
 @pytest.mark.parametrize("raw", ["", "localhost", "exa mple.com", "-bad.com", "a" * 300 + ".com", "999.1.1.1.1"])
 def test_normalize_target_rejects(raw):
     with pytest.raises(ValueError):
-        scanner.normalize_target(raw)
+        targets.normalize(raw)
 
 
 def test_allowlist(monkeypatch):
     monkeypatch.setenv("ASI_ALLOWED_TARGETS", "example.com")
-    assert scanner.normalize_target("api.example.com") == "api.example.com"
+    assert targets.normalize("api.example.com") == "api.example.com"
     with pytest.raises(ValueError):
-        scanner.normalize_target("evil.com")
+        targets.normalize("evil.com")
 
 
 def test_risk_score_bounds_and_monotonic():
-    assert scanner.risk_score([]) == 0
-    assert scanner.risk_score(["info"] * 50) == 0
-    assert scanner.risk_score(["low"]) < scanner.risk_score(["medium"]) < scanner.risk_score(["high"])
-    assert scanner.risk_score(["critical"] * 100) == 100
+    assert domain.risk_score([]) == 0
+    assert domain.risk_score(["info"] * 50) == 0
+    assert domain.risk_score(["low"]) < domain.risk_score(["medium"]) < domain.risk_score(["high"])
+    assert domain.risk_score(["critical"] * 100) == 100
 
 
 def test_settings_env_has_priority(monkeypatch):
@@ -91,22 +91,22 @@ def test_scheduler_runs_due_and_skips_busy(started):
 
 def test_email_auth_flags_missing_spf_and_dmarc(monkeypatch):
     answers = {("example.com", "MX"): ["10 mx.example.com."], ("example.com", "TXT"): [], ("_dmarc.example.com", "TXT"): []}
-    monkeypatch.setattr(checks, "_doh", lambda n, t: answers[(n, t)])
+    monkeypatch.setattr(checks, "doh", lambda n, t: answers[(n, t)])
     found, err = checks.email_auth("example.com")
     assert err is None
     assert {f[1].split(" (")[0] for f in found} == {"Brak rekordu SPF", "Brak rekordu DMARC"}
 
 
 def test_email_auth_ignores_domains_without_mail(monkeypatch):
-    monkeypatch.setattr(checks, "_doh", lambda n, t: [])
+    monkeypatch.setattr(checks, "doh", lambda n, t: [])
     assert checks.email_auth("example.com") == ([], None)
 
 
 def test_sensitive_files_require_signature(monkeypatch):
     def fake_fetch(url, **_):
         if url.endswith("/.env"):
-            return 200, {"content-type": "text/plain"}, b"DB_PASSWORD=x\n"
-        return 200, {"content-type": "text/html"}, b"<!doctype html>catch-all"
+            return net.Response(200, {"content-type": "text/plain"}, b"DB_PASSWORD=x\n")
+        return net.Response(200, {"content-type": "text/html"}, b"<!doctype html>catch-all")
     monkeypatch.setattr(checks, "fetch", fake_fetch)
     found = checks.sensitive_files("https://example.com")
     assert [f[2] for f in found] == ["https://example.com/.env"]

@@ -4,8 +4,9 @@ import time
 import pytest
 from fastapi.testclient import TestClient
 
-from asi import db, domain, scanner, scheduler
+from asi import db, domain
 from asi.main import app
+from asi.scan import runner
 
 
 @pytest.fixture(autouse=True)
@@ -19,13 +20,13 @@ def tmp_db(tmp_path, monkeypatch):
 def started(monkeypatch):
     """Zamiast prawdziwego skanu w tle zapisuje id zleconych skanów."""
     ids = []
-    monkeypatch.setattr(scanner, "run_scan", ids.append)
+    monkeypatch.setattr(runner, "run_scan", ids.append)
     return ids
 
 
 @pytest.fixture
 def client(monkeypatch, started):
-    monkeypatch.setattr(scheduler, "start", lambda: None)
+    monkeypatch.setenv("ASI_SCHEDULER", "0")
     with TestClient(app) as c:
         yield c
 

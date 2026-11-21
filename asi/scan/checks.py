@@ -8,13 +8,13 @@ import socket
 import ssl
 import urllib.parse
 
-from . import net
+from .. import net
 
 fetch = net.fetch  # nazwa modułowa: punkt podmiany w testach
 
 
 # ---------- ukryte / wrażliwe pliki ----------
-def _is_html(h, b):
+def is_html(h, b):
     return "html" in h.get("content-type", "").lower() or b.lstrip()[:15].lower().startswith((b"<!doctype", b"<html"))
 
 
@@ -23,7 +23,7 @@ SENSITIVE = [
     ("/.git/HEAD", lambda b, h: re.match(rb"ref: refs/", b),
      "high", "Publicznie dostępne repozytorium Git (/.git)",
      "Zablokuj dostęp do katalogu .git na serwerze WWW i usuń go z katalogu publicznego; zmień ujawnione hasła i klucze."),
-    ("/.env", lambda b, h: not _is_html(h, b) and re.search(rb"(?m)^[A-Z][A-Z0-9_]{2,}=.+", b),
+    ("/.env", lambda b, h: not is_html(h, b) and re.search(rb"(?m)^[A-Z][A-Z0-9_]{2,}=.+", b),
      "critical", "Publicznie dostępny plik konfiguracyjny .env",
      "Natychmiast usuń plik z katalogu publicznego i zmień wszystkie zapisane w nim hasła i klucze."),
     ("/wp-config.php.bak", lambda b, h: b"DB_PASSWORD" in b,
@@ -58,7 +58,7 @@ def sensitive_files(base):
     out = []
     for path, sig, sev, title, fix in SENSITIVE:
         r = fetch(base + path, limit=4096, timeout=5)
-        if r and r[0] == 200 and sig(r[2], r[1]):
+        if r and r.status == 200 and sig(r.body, r.headers):
             out.append((sev, title, base + path, fix))
     return out
 
@@ -66,7 +66,7 @@ def sensitive_files(base):
 def security_txt(base):
     for p in ("/.well-known/security.txt", "/security.txt"):
         r = fetch(base + p, limit=2048, timeout=5)
-        if r and r[0] == 200 and b"contact:" in r[2].lower() and not _is_html(r[1], r[2]):
+        if r and r.status == 200 and b"contact:" in r.body.lower() and not is_html(r.headers, r.body):
             return []
     return [("info", "Brak pliku security.txt",
              base + "/.well-known/security.txt",
@@ -83,9 +83,8 @@ def legacy_tls(host, port):
             c.check_hostname, c.verify_mode = False, ssl.CERT_NONE
             c.minimum_version = c.maximum_version = ver
             c.set_ciphers("ALL:@SECLEVEL=0")
-            with socket.create_connection((host, port), timeout=6) as s:
-                with c.wrap_socket(s, server_hostname=host):
-                    accepted.append(name)
+            with socket.create_connection((host, port), timeout=6) as s, c.wrap_socket(s, server_hostname=host):
+                accepted.append(name)
         except Exception:  # noqa: BLE001 - brak wsparcia po naszej stronie też traktujemy jako "nie wykryto"
             continue
     if accepted:
@@ -95,7 +94,7 @@ def legacy_tls(host, port):
 
 
 # ---------- poczta: SPF / DMARC (przez DNS-over-HTTPS, bez dodatkowych bibliotek) ----------
-def _doh(name, rtype):
+def doh(name, rtype):
     url = "https://cloudflare-dns.com/dns-query?" + urllib.parse.urlencode({"name": name, "type": rtype})
     j = net.get_json(url, timeout=8, headers={"Accept": "application/dns-json"})
     return [a["data"].strip('"') for a in j.get("Answer", []) if "data" in a]
@@ -104,9 +103,9 @@ def _doh(name, rtype):
 def email_auth(domain):
     """Zwraca (ustalenia, None) albo ([], komunikat) gdy DNS-over-HTTPS jest nieosiągalny."""
     try:
-        mx = _doh(domain, "MX")
-        txt = ["".join(x.replace('" "', "")) for x in _doh(domain, "TXT")]
-        dmarc = ["".join(x.replace('" "', "")) for x in _doh("_dmarc." + domain, "TXT")]
+        mx = doh(domain, "MX")
+        txt = ["".join(x.replace('" "', "")) for x in doh(domain, "TXT")]
+        dmarc = ["".join(x.replace('" "', "")) for x in doh("_dmarc." + domain, "TXT")]
     except Exception as e:  # noqa: BLE001
         return [], f"DoH niedostępne: {e}"
     if not mx:
