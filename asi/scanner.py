@@ -29,6 +29,12 @@ os.environ["PATH"] = os.environ.get("PATH", "") + os.pathsep + os.path.expanduse
 JOB_SEM = threading.Semaphore(int(os.environ.get("ASI_MAX_WORKERS", "4")))  # ile skanów (jobów) naraz
 DEFAULT_RATE = int(os.environ.get("ASI_SCAN_RATE", "300"))  # pakiety/s dla naabu/nmap (per batch)
 BATCH_TARGET_S = 30  # adaptacyjny rozmiar paczki hostów dąży do tylu sekund na paczkę
+# Drugi przebieg nie powtarza top-100 na całej martwej sieci: najpierw kilka portów,
+# na których żywy host zwykle coś odpowie. Kolejność od tych z twardym banerem
+# (środkownik, który tylko kończy handshake, odpada) do usług z RISKY.
+LIVENESS_PORTS = (80, 443, 22, 8080, 8443, 21, 25, 445, 3389)
+LIVENESS_TIMEOUT = 1.2
+HOST_RETRY_PAUSE_S = 3  # odstęp, żeby chwilowy zanik nie wypadł w tej samej sekundzie co pierwszy przebieg
 LOG_LOCK = threading.Lock()  # serializuje read-modify-write Ctx.log() między wątkami jednego procesu
 NUCLEI_TEMPLATES_LOCK = threading.Lock()  # dwa równoległe skany nie ściągają szablonów naraz
 TOOLS = ["subfinder", "dnsx", "naabu", "nmap", "httpx", "nuclei"]
@@ -333,7 +339,7 @@ def scan_ports(ctx, ips, tools, rate=None):
     rate = rate or DEFAULT_RATE
     result = {ip: [] for ip in ips}
     if not ips:
-        return result
+        return result, set()
     if tools["naabu"]["installed"]:
         scan_type = "s" if _naabu_can_syn(tools["naabu"]["path"]) else "c"
         out = run_cmd(ctx, ["naabu", "-list", "/dev/stdin", "-top-ports", "100", "-rate", str(rate),
@@ -378,12 +384,12 @@ HTTP_PORTS = {80, 8000, 8008, 8080, 8888, 3000}
 TLS_PORTS = {443, 8443, 9443, 993, 995}
 
 
-def _verify(ip, port):
+def _verify(ip, port, timeout=4):
     """Zwraca (ok, banner). Odrzuca porty, gdzie 'połączenie' tworzy pośrednik/router
     (TCP handshake OK, ale usługa nie odpowiada) - typowe fałszywe porty 21/22 itp."""
     try:
-        with socket.create_connection((ip, port), timeout=4) as s:
-            s.settimeout(4)
+        with socket.create_connection((ip, port), timeout=timeout) as s:
+            s.settimeout(timeout)
             if port in TLS_PORTS:
                 c = ssl.create_default_context()
                 c.check_hostname, c.verify_mode = False, ssl.CERT_NONE
@@ -429,31 +435,106 @@ def verify_ports(ctx, result):
         ctx.log(f"Odrzucono fałszywe/niepotwierdzone porty: {', '.join(dropped)}")
     for ip in out:
         out[ip].sort(key=lambda x: x["port"])
-    return out
+    # answered = host w ogóle coś pokazał (nawet jeśli weryfikacja wszystko odrzuciła).
+    # Pusta lista portów BEZ tego zbioru znaczy "nie odezwał się", nie "fałszywe porty".
+    answered = {ip for ip, plist in result.items() if plist}
+    return out, answered
 
 
-def batched_port_scan(ctx, ips, tools, rate=None, start_batch=200):
+class _RateGate:
+    """Rozsuwa start kolejnych prób tak, by nie przekroczyć rate pakietów/s."""
+
+    def __init__(self, per_sec):
+        self.interval = 1.0 / max(1, int(per_sec))
+        self._lock = threading.Lock()
+        self._next = time.monotonic()
+
+    def wait(self):
+        with self._lock:
+            now = time.monotonic()
+            slot = self._next if self._next > now else now
+            self._next = slot + self.interval
+        delay = slot - time.monotonic()
+        if delay > 0:
+            time.sleep(delay)
+
+
+def _host_alive(ctx, ip, gate):
+    """Jedna próba: czy host odpowiada na którymś z LIVENESS_PORTS. Pierwszy sukces kończy."""
+    ctx.check_time_limit()
+    for port in LIVENESS_PORTS:
+        gate.wait()
+        ok, _banner = _verify(ip, port, timeout=LIVENESS_TIMEOUT)
+        if ok:
+            return True
+    return False
+
+
+def retry_silent_hosts(ctx, ports, answered, tools, rate=None, pause_s=HOST_RETRY_PAUSE_S):
+    """Jedno ponowne sondowanie hostów, które w tym przebiegu wcale nie odpowiedziały.
+
+    Host z portami odrzuconymi przez verify_ports (jest w `answered`) nie jest martwy —
+    odezwał się, tylko usługa nie potwierdziła się — i nie wchodzi w tę ścieżkę.
+    Najpierw krótki test osiągalności pod tym samym limitem tempa co skan portów,
+    potem pełny skan wyłącznie dla hostów, które przy drugiej próbie jednak odpowiedziały.
+    """
+    silent = [ip for ip, plist in ports.items() if not plist and ip not in answered]
+    if not silent:
+        return ports
+    limit = rate or DEFAULT_RATE
+    ctx.stage(f"Ponowne sondowanie ({len(silent)} hostów bez odpowiedzi)")
+    ctx.log(f"Przerwa {pause_s}s, potem test osiągalności (limit {limit} pkt/s)")
+    if pause_s:
+        time.sleep(pause_s)
+    ctx.check_time_limit()
+    gate = _RateGate(limit)
+    workers = min(128, len(silent))
+    with ThreadPoolExecutor(workers) as ex:
+        flags = list(ex.map(lambda ip: _host_alive(ctx, ip, gate), silent))
+    woke = [ip for ip, ok in zip(silent, flags) if ok]
+    ctx.log(f"Przy ponownej próbie odpowiedziało {len(woke)} z {len(silent)}")
+    if not woke:
+        return ports
+    extra, _ignored = batched_port_scan(ctx, woke, tools, rate=rate, track_progress=False)
+    recovered = 0
+    for ip, plist in extra.items():
+        if plist:
+            ports[ip] = plist
+            recovered += 1
+    ctx.log(f"Pełny skan powtórzony dla {len(woke)} hostów, potwierdzone usługi: {recovered}")
+    return ports
+
+
+def batched_port_scan(ctx, ips, tools, rate=None, start_batch=200, track_progress=True):
     """Dzieli listę IP na paczki, adaptując rozmiar do zmierzonej przepustowości tak, by każda
     paczka trwała ~BATCH_TARGET_S - realizuje "podział na optymalne podgrupy" i daje postęp/czas
-    trwania widoczne w trakcie (duży pojedynczy skan naabu/nmap nie dałby żadnego postępu)."""
-    result = {}
+    trwania widoczne w trakcie (duży pojedynczy skan naabu/nmap nie dałby żadnego postępu).
+
+    Zwraca (porty, answered). `answered` to adresy, które cokolwiek pokazały przed weryfikacją.
+    `track_progress=False` przy powtórce wąskiego podzbioru, żeby pasek hosts_done nie cofał się
+    z pełnej liczby hostów do rozmiaru tej podgrupy.
+    """
+    result, answered = {}, set()
     if not ips:
-        return result
+        return result, answered
     batch_size, done = max(1, start_batch), 0
     i = 0
     while i < len(ips):
         ctx.check_time_limit()
         chunk = ips[i:i + batch_size]
         t0 = time.time()
-        result.update(scan_ports(ctx, chunk, tools, rate=rate))
+        found, ans = scan_ports(ctx, chunk, tools, rate=rate)
+        result.update(found)
+        answered |= ans
         elapsed = time.time() - t0
         i += len(chunk)
         done += len(chunk)
-        ctx.hosts_progress(done)
+        if track_progress:
+            ctx.hosts_progress(done)
         ctx.log(f"Paczka {len(chunk)} hostów w {elapsed:.1f}s ({done}/{len(ips)})")
         if elapsed > 0.5:
             batch_size = max(50, min(2000, int(len(chunk) / elapsed * BATCH_TARGET_S)))
-    return result
+    return result, answered
 
 
 def web_scheme(p):
@@ -650,7 +731,8 @@ def pipeline(ctx):
             ctx.log("OpenVAS: pomijam - nieskonfigurowany (ASI_GVM_HOST / ASI_GVM_PASSWORD)")
 
     ctx.stage(f"Skan portów ({len(ips)} adresów IP)")
-    ports = batched_port_scan(ctx, ips, tools, rate=ctx.opts.get("rate_limit"))
+    ports, answered = batched_port_scan(ctx, ips, tools, rate=ctx.opts.get("rate_limit"))
+    ports = retry_silent_hosts(ctx, ports, answered, tools, rate=ctx.opts.get("rate_limit"))
     port_id = {}
     for ip, plist in ports.items():
         for p in plist:

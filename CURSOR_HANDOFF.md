@@ -54,6 +54,10 @@ Skrót:
   `scanner.detect_tech()` (nagłówki/cookies/body, regex bounded przeciw ReDoS).
 - **Diff i niestabilność**: `main._diff` - nowe/zniknięte/zmienione, plus `flapping_assets`
   (host pojawia się/znika niespójnie) i `confirmed_offline` (nieobecny ≥2 ostatnie skany).
+  W ramach jednego przebiegu host bez żadnej odpowiedzi jest sondowany ponownie raz
+  (`scanner.retry_silent_hosts`): tani test osiągalności, pełny skan portów tylko
+  dla tych, które jednak odpowiedziały, ten sam `rate_limit`. Hosty z portami
+  odrzuconymi przez `verify_ports` nie wchodzą w tę ścieżkę.
 - **Harmonogram**: `main._scheduler_loop` (wątek co 30s), tabela `schedules`, okno czasowe
   (`Ctx.check_time_limit` → `paused_window` jeśli przekroczone).
 - **DefectDojo**: `asi/defectdojo.py`, eksport jako "Generic Findings Import", URL walidowany
@@ -84,17 +88,14 @@ bo `esc()` HTML nie chroni wewnątrz atrybutu JS-handlera), brak SRI na CDN-owyc
 
 Z `docs/architektura.md` §10, nie zmyślone:
 
-1. **Retry pojedynczego hosta w ramach jednego skanu** - mamy flapping/confirmed_offline
-   *między* skanami, ale host, który nie odpowie raz w trakcie jednego przebiegu, nie jest
-   automatycznie sondowany ponownie.
-2. **Prawdziwe wznowienie po `paused_window`** - dziś cały skan startuje od nowa przy
+1. **Prawdziwe wznowienie po `paused_window`** - dziś cały skan startuje od nowa przy
    kolejnym `next_run`, nie kontynuuje od zapisanego postępu.
-3. **Brak zautomatyzowanych testów** (pytest) - tylko doraźne skrypty weryfikacyjne używane
+2. **Brak zautomatyzowanych testów** (pytest) - tylko doraźne skrypty weryfikacyjne używane
    podczas developmentu, nie wchodzą do repo.
-4. Prezentacja (≤10 slajdów + demo) - **explicite odłożona przez użytkownika na koniec**,
+3. Prezentacja (≤10 slajdów + demo) - **explicite odłożona przez użytkownika na koniec**,
    dopiero gdy produkt gotowy. Szkic/draft: `docs/prezentacja.html`, scenariusz demo:
    `docs/screnariusz.md` (bloki A-N, gotowe złożenia czasowe 2/3/5/6+ min).
-5. Nie zrobione i NIE w zakresie spec: integracja Shodan/CISA KEV/NVD - nie dodawaj tego.
+4. Nie zrobione i NIE w zakresie spec: integracja Shodan/CISA KEV/NVD - nie dodawaj tego.
 
 ## 4. Co było faktycznie zweryfikowane (nie tylko napisane)
 

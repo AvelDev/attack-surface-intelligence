@@ -54,6 +54,14 @@ własna sieć) zakończony ze 556+ ustaleniami, score 100/100.
    Każdy znaleziony port przechodzi dodatkową weryfikację (`verify_ports`) -
    odrzuca "fałszywe" porty, gdzie TCP handshake się udaje, ale usługa nie
    odpowiada (typowe dla pośredników/firewalli zwracających RST na wszystko).
+   Osobno: host, który w tym przebiegu nie pokazał żadnego portu (narzędzie nic
+   nie zgłosiło — to nie to samo co porty odrzucone przez weryfikację), jest
+   sondowany ponownie raz (`retry_silent_hosts`). Po krótkiej przerwie idzie
+   tani test osiągalności na kilku typowych portach, pod tym samym `rate_limit`.
+   Pełny skan portów powtarza się tylko dla adresów, które przy tej próbie
+   jednak odpowiedziały, więc chwilowo nieosiągalny host nie jest od razu
+   uznany za martwy, a martwa część sieci nie jest skanowana drugi raz w całości.
+   Pasek `hosts_done` przy tej powtórce się nie cofa.
 5. **Sondowanie HTTP/HTTPS**: `httpx` (ProjectDiscovery), fallback: `urllib`.
    Zbiera tytuł, kod odpowiedzi, nagłówki, serwer, (fallback też) treść strony.
    Wbudowane kontrole: HTTP bez przekierowania na HTTPS, brak HSTS, brakujące
@@ -230,6 +238,7 @@ nie język implementacji).
 | Panel administracyjny, środowisko testowe | `ADMIN_RE` na tytule strony |
 | Porównanie dwóch skanów, nowe/zniknięte/zmienione | `main._diff` |
 | Hosty niestabilne, ocena po kolejnych skanach | `_diff`: `flapping_assets`, `confirmed_offline` |
+| Host niestabilny w ramach jednego skanu (ponowne sondowanie) | `retry_silent_hosts` |
 | Własne sygnatury detekcyjne | `asi/signatures.py` |
 | Formularz + import ręczny/CSV/JSON, te same reguły | `_start_scan` używane przez oba wejścia |
 | RBAC, 4 konkretne role | `asi/auth.py` |
@@ -242,10 +251,6 @@ nie język implementacji).
 
 ## 10. Znane zaległości (uczciwie, dla jury)
 
-- **Retry pojedynczego hosta w ramach jednego skanu** - mamy wykrywanie
-  niestabilności *między* skanami (`flapping_assets`/`confirmed_offline`, §3),
-  ale w ramach jednego przebiegu host, który raz nie odpowie, nie jest
-  automatycznie sondowany ponownie zanim skan uzna go za martwy.
 - **Wznowienie po oknie czasowym** (`paused_window`) uruchamia cały skan od
   nowa przy kolejnym `next_run`, nie kontynuuje od zapisanego postępu - prosty,
   ale świadomy kompromis czasowy na hackathon, nie prawdziwe checkpointowanie.
