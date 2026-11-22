@@ -1,0 +1,20 @@
+name: Docker smoke test
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  smoke:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Build image + smoke test (build, panel, login, 6 narzędzi, healthcheck)
+        run: bash scripts/docker_smoke_test.sh

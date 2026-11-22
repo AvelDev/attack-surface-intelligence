@@ -1,0 +1,4 @@
+# Zależności tylko do testów - NIE wchodzą do obrazu Dockera (requirements.txt to runtime).
+-r requirements.txt
+pytest>=8
+httpx>=0.27  # wymagany przez starlette.testclient.TestClient
