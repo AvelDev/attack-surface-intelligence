@@ -29,10 +29,16 @@ try:
 except ImportError:
     AVAILABLE = False
 
-HOST = os.environ.get("ASI_GVM_HOST", "")
-PORT = int(os.environ.get("ASI_GVM_PORT", "9390"))
-USERNAME = os.environ.get("ASI_GVM_USERNAME", "admin")
-PASSWORD = os.environ.get("ASI_GVM_PASSWORD", "")
+# Host/port/login/hasło mogą też przyjść z UI (tabela settings, p. get_config()) - env
+# zostaje jako wartość domyślna/awaryjna i jako JEDNA z dwóch kompletnych par (nigdy
+# mieszanki env+UI), dokładnie jak w asi/defectdojo.py::get_config().
+ENV_HOST = os.environ.get("ASI_GVM_HOST", "")
+ENV_PORT = os.environ.get("ASI_GVM_PORT", "9390")
+ENV_USERNAME = os.environ.get("ASI_GVM_USERNAME", "admin")
+ENV_PASSWORD = os.environ.get("ASI_GVM_PASSWORD", "")
+# Te cztery to "zaawansowane" - zostają env-only (nie wystawiamy ich w prostym formularzu
+# Ustawień), bo to nazwy obiektów po stronie GVM (konfiguracja skanu/skaner/lista portów),
+# nie dane logowania - zmienia się je rzadko i wymaga wiedzy, co jest dostępne na danym GVM.
 SCAN_CONFIG_NAME = os.environ.get("ASI_GVM_SCAN_CONFIG", "Full and fast")
 SCANNER_NAME = os.environ.get("ASI_GVM_SCANNER", "OpenVAS Default")
 PORT_LIST_NAME = os.environ.get("ASI_GVM_PORT_LIST", "All IANA assigned TCP and UDP")
@@ -45,18 +51,57 @@ THREAT_SEV = {"Critical": "critical", "High": "high", "Medium": "medium", "Low":
               "Log": "info", "Alarm": "high", "None": "info"}
 
 
+def get_config():
+    """(host, port, username, password) z JEDNEGO źródła - albo cała czwórka ze zmiennych
+    środowiskowych, albo cała z bazy (hasło zaszyfrowane) - nigdy mieszanki (zob. uzasadnienie
+    w defectdojo.get_config() - ten sam powód: admin ustawia env, UI nie powinno móc po cichu
+    podmienić samego hosta i wysłać go z hasłem, które admin skonfigurował gdzie indziej)."""
+    if ENV_HOST and ENV_PASSWORD:
+        return ENV_HOST, int(ENV_PORT), ENV_USERNAME, ENV_PASSWORD
+    try:
+        with db.conn() as c:
+            rows = {r["key"]: r["value"] for r in c.execute(
+                "SELECT key, value FROM settings WHERE key IN "
+                "('gvm_host','gvm_port','gvm_username','gvm_password')")}
+        host = rows.get("gvm_host", "")
+        password = crypto.dec(rows["gvm_password"]) if rows.get("gvm_password") else ""
+        if host and password:
+            return (host, int(rows.get("gvm_port") or 9390),
+                     rows.get("gvm_username") or "admin", password)
+    except Exception:  # noqa: BLE001
+        pass
+    return "", int(ENV_PORT), ENV_USERNAME, ""
+
+
 def configured():
-    return AVAILABLE and bool(HOST and PASSWORD)
+    host, _port, _user, password = get_config()
+    return AVAILABLE and bool(host and password)
 
 
 def status():
-    if not configured():
+    host, port, _user, password = get_config()
+    if not (AVAILABLE and host and password):
         return {"configured": False, "reachable": False}
     try:
-        with socketlib.create_connection((HOST, PORT), timeout=3):
+        with socketlib.create_connection((host, port), timeout=3):
             return {"configured": True, "reachable": True}
     except OSError:
         return {"configured": True, "reachable": False}
+
+
+def validate_host(host):
+    """PlainTCPConnection idzie plaintextem (brak TLS) - GVM musi być w sieci prywatnej/
+    loopback, inaczej hasło do niego poleciałoby w czystym tekście na dowolny publiczny adres.
+    Wołane zarówno przy zapisie ustawień (szybki feedback w UI), jak i tuż przed samym
+    skanem (_run) - na wypadek gdyby DNS dla tego hosta zmienił się między jednym a drugim."""
+    try:
+        ip = ipaddress.ip_address(socketlib.gethostbyname(host))
+    except (OSError, ValueError) as e:
+        raise ValueError(f"Nie można zweryfikować adresu {host!r}: {e}") from e
+    if not (ip.is_private or ip.is_loopback):
+        raise ValueError(
+            f"{host} ({ip}) nie jest adresem prywatnym/loopback - GVM łączy się plaintextem, "
+            "nie wolno wysłać tam hasła. Dla zdalnego GVM użyj TLS/SSH (poza zakresem tego PoC).")
 
 
 if AVAILABLE:
@@ -107,25 +152,15 @@ def run(scan_id, hosts, log):
             log(f"OpenVAS: błąd: {e!r}")
 
 
-def _assert_private(host):
-    """PlainTCPConnection idzie plaintextem (brak TLS) - nie wysyłaj danych logowania GVM
-    poza sieć prywatną/loopback (np. przez przypadkową zmianę ASI_GVM_HOST na publiczny adres)."""
-    try:
-        ip = ipaddress.ip_address(socketlib.gethostbyname(host))
-    except (OSError, ValueError) as e:
-        raise RuntimeError(f"OpenVAS: nie można zweryfikować adresu {host!r}: {e}") from e
-    if not (ip.is_private or ip.is_loopback):
-        raise RuntimeError(
-            f"OpenVAS: {host} ({ip}) nie jest adresem prywatnym/loopback - odmawiam wysłania "
-            "danych logowania plaintextem (PlainTCPConnection). Dla zdalnych hostów użyj "
-            "gvm.connections.TLSConnection lub SSHConnection.")
-
-
 def _run(scan_id, hosts, log):
-    _assert_private(HOST)
-    conn = PlainTCPConnection(hostname=HOST, port=PORT, timeout=CONNECT_TIMEOUT)
+    host, port, username, password = get_config()
+    try:
+        validate_host(host)
+    except ValueError as e:
+        raise RuntimeError(f"OpenVAS: {e}") from e
+    conn = PlainTCPConnection(hostname=host, port=port, timeout=CONNECT_TIMEOUT)
     with GMP(connection=conn, transform=EtreeTransform()) as gmp:
-        gmp.authenticate(USERNAME, PASSWORD)
+        gmp.authenticate(username, password)
         config_id = _find_id(gmp.get_scan_configs(), "config", SCAN_CONFIG_NAME)
         scanner_id = _find_id(gmp.get_scanners(), "scanner", SCANNER_NAME)
         port_list_id = _find_id(gmp.get_port_lists(), "port_list", PORT_LIST_NAME)

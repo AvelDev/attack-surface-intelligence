@@ -215,7 +215,8 @@ a.brand { text-decoration: none; color: inherit; }
 .set-status i { flex: none; width: 8px; height: 8px; border: 1px solid var(--ink-3); }
 .set-status.is-on { border-style: solid; color: var(--ink); }
 .set-status.is-on i { background: var(--ok); border-color: var(--ok); }
-.dojo-form { max-width: 560px; }
+.dojo-form, .gvm-form { max-width: 560px; }
+.settings-integrations { display: flex; flex-direction: column; gap: var(--s-4); min-height: 0; }
 .tool-st { display: inline-flex; align-items: center; gap: 7px; color: var(--ink-3); }
 .tool-st i { width: 8px; height: 8px; border: 1px solid var(--ink-3); }
 .tool-st.is-on { color: var(--ink); }

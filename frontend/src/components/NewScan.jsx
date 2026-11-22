@@ -1,4 +1,4 @@
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { FileUp } from "lucide-react";
 import { api } from "../api.js";
 import { useI18n } from "../i18n.jsx";
@@ -19,6 +19,19 @@ export default function NewScan({ onClose, onStarted, onAuthLost, flash, initial
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const fileRef = useRef(null);
+  // Narzędzia opcjonalne (nuclei, OpenVAS/GVM) bywają niedostępne na danym serwerze -
+  // zanim user zacznie się zastanawiać czemu zaznaczony checkbox nic nie dał, wyłączamy
+  // go od razu i mówimy wprost dlaczego. `null` = jeszcze nie wiadomo (nie blokuj na sztywno).
+  const [tools, setTools] = useState(null);
+  useEffect(() => {
+    let live = true;
+    api.tools().then((d) => live && setTools(d)).catch(() => {});
+    return () => { live = false; };
+  }, []);
+  const nucleiOk = tools ? !!tools.nuclei?.installed : true;
+  const gvmOk = tools ? !!tools.openvas?.installed : true;
+  useEffect(() => { if (!nucleiOk) setNuclei(false); }, [nucleiOk]);
+  useEffect(() => { if (!gvmOk) setGvm(false); }, [gvmOk]);
 
   const list = targets.split(/[\n,]/).map((x) => x.trim()).filter(Boolean);
 
@@ -93,8 +106,12 @@ export default function NewScan({ onClose, onStarted, onAuthLost, flash, initial
         </Field>
         <fieldset className="span-2 fs">
           <legend>{t("ns.depth")}</legend>
-          <Check checked={nuclei} onChange={setNuclei}>{t("ns.nuclei")}</Check>
-          <Check checked={gvm} onChange={setGvm}>{t("ns.gvm")}</Check>
+          <Check checked={nuclei} onChange={setNuclei} disabled={!nucleiOk}>
+            {t("ns.nuclei")}{!nucleiOk && ` — ${t("ns.unavailable")}`}
+          </Check>
+          <Check checked={gvm} onChange={setGvm} disabled={!gvmOk}>
+            {t("ns.gvm")}{!gvmOk && ` — ${t("ns.unavailable")}`}
+          </Check>
         </fieldset>
         <div className="span-2 consent">
           <Check checked={auth} onChange={setAuth}>{t("ns.auth")}</Check>

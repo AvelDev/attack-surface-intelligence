@@ -190,6 +190,17 @@ ustaleń ze WSZYSTKICH skanów na dowolny serwer (SSRF/eksfiltracja). Klucz API
 przechowywany zaszyfrowany (`crypto.enc`); `get_config()` nigdy nie miesza
 URL-a z env ze zmiennym z bazy (albo cała para z jednego źródła, albo z drugiego).
 
+**Konfiguracja GVM z UI** (`POST /api/settings/gvm`, panel Ustawienia) - ten sam wzorzec co
+DefectDojo powyżej: `admin`-only, `gvm_scan.get_config()` nigdy nie miesza env z bazą (cała
+czwórka host/port/login/hasło z jednego źródła), hasło szyfrowane. Dodatkowo
+`gvm_scan.validate_host()` odrzuca adresy publiczne już przy zapisie (nie dopiero przy
+starcie skanu) - GVM łączy się po gołym TCP bez TLS (`PlainTCPConnection`), więc host spoza
+sieci prywatnej/loopback oznaczałby wysłanie hasła GVM plaintextem na dowolny adres. Zanim to
+dodaliśmy, GVM dało się skonfigurować wyłącznie przez `ASI_GVM_*` i restart kontenera - teraz
+nie trzeba, dokładnie jak przy DefectDojo. Panel (`NewScan`/`Schedule`) dodatkowo wyłącza
+checkbox "nuclei"/"OpenVAS" i tłumaczy dlaczego, gdy `/api/tools` zgłasza narzędzie jako
+niedostępne - wcześniej dało się zaznaczyć opcję, która po cichu nic nie robiła.
+
 Frontend: dynamicznie budowane węzły DOM (triage, lista skanów w Command
 Center, lista "confirmed_offline") przechodzą przez `esc()` - jedno realne
 złapane ryzyko: wartości wstawiane w atrybut `onclick="...('${esc(x)}')"` są

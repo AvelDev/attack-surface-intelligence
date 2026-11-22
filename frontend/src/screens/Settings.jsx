@@ -20,13 +20,21 @@ export default function Settings({ user, shell, onAuthLost }) {
   return (
     <Page shell={shell} title={t("nav.settings")} refreshing={settings.loading || tools.loading} onRefresh={reload}
           toast={toast} onToastClose={clear} className="split split-even">
-      <Frame tag="A" id="dojo" className="split-main" title="DefectDojo"
-             meta={settings.data ? (settings.data.defectdojo_configured ? t("set.configured") : t("set.notConfigured")) : null}>
-        {!settings.data ? <LoadState error={settings.error} onRetry={settings.load} /> : (
-          <DojoForm key={settings.data.defectdojo_url} s={settings.data} isAdmin={isAdmin} onAuthLost={onAuthLost} flash={flash} onSaved={reload} />
-        )}
-      </Frame>
-      <Frame tag="B" id="tools" className="split-side tools-mod" title={t("set.tools")}>
+      <div className="split-main settings-integrations">
+        <Frame tag="A" id="dojo" title="DefectDojo"
+               meta={settings.data ? (settings.data.defectdojo_configured ? t("set.configured") : t("set.notConfigured")) : null}>
+          {!settings.data ? <LoadState error={settings.error} onRetry={settings.load} /> : (
+            <DojoForm key={settings.data.defectdojo_url} s={settings.data} isAdmin={isAdmin} onAuthLost={onAuthLost} flash={flash} onSaved={reload} />
+          )}
+        </Frame>
+        <Frame tag="B" id="gvm" title="OpenVAS / GVM"
+               meta={settings.data ? (settings.data.gvm_configured ? t("set.configured") : t("set.notConfigured")) : null}>
+          {!settings.data ? <LoadState error={settings.error} onRetry={settings.load} /> : (
+            <GvmForm key={settings.data.gvm_host} s={settings.data} isAdmin={isAdmin} onAuthLost={onAuthLost} flash={flash} onSaved={reload} />
+          )}
+        </Frame>
+      </div>
+      <Frame tag="C" id="tools" className="split-side tools-mod" title={t("set.tools")}>
         {!tools.data ? <LoadState error={tools.error} onRetry={tools.load} /> : <ToolTable tools={tools.data} />}
       </Frame>
     </Page>
@@ -77,6 +85,69 @@ function DojoForm({ s, isAdmin, onAuthLost, flash, onSaved }) {
         <div className="span-2 form-actions"><button type="submit" className="btn btn-primary" disabled={busy}>{t("set.save")}</button></div>
       ) : (
         <p className="q-ro span-2">{t("set.adminOnly")}</p>
+      )}
+    </form>
+  );
+}
+
+function GvmForm({ s, isAdmin, onAuthLost, flash, onSaved }) {
+  const { t } = useI18n();
+  const [host, setHost] = useState(s.gvm_host || "");
+  const [port, setPort] = useState(s.gvm_port || 9390);
+  const [username, setUsername] = useState(s.gvm_username || "admin");
+  const [password, setPassword] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState("");
+  useEffect(() => {
+    setHost(s.gvm_host || "");
+    setPort(s.gvm_port || 9390);
+    setUsername(s.gvm_username || "admin");
+  }, [s.gvm_host, s.gvm_port, s.gvm_username]);
+
+  const submit = async (e) => {
+    e.preventDefault();
+    setError("");
+    setBusy(true);
+    try {
+      await api.saveGvm(host.trim(), +port, username.trim(), password.trim());
+      setPassword("");
+      flash(t("set.gvmSaved"), "ok");
+      onSaved();
+    } catch (err) {
+      onAuthLost(err);
+      setError(err.message);
+    }
+    setBusy(false);
+  };
+
+  return (
+    <form className="form-grid gvm-form" onSubmit={submit}>
+      <p className={`set-status span-2 ${s.gvm_configured ? "is-on" : ""}`}>
+        <i aria-hidden="true" />
+        {s.gvm_configured ? t("set.gvmStatusOn", { host: s.gvm_host }) : t("set.gvmStatusOff")}
+      </p>
+      <Field label={t("set.gvmHost")}>
+        <input className="mono" value={host} onChange={(e) => setHost(e.target.value)} disabled={!isAdmin}
+               placeholder="10.0.0.5" required spellCheck={false} />
+      </Field>
+      <Field label={t("set.gvmPort")}>
+        <input className="mono" type="number" min={1} max={65535} value={port}
+               onChange={(e) => setPort(e.target.value)} disabled={!isAdmin} required />
+      </Field>
+      <Field label={t("set.gvmUsername")}>
+        <input className="mono" value={username} onChange={(e) => setUsername(e.target.value)} disabled={!isAdmin}
+               spellCheck={false} />
+      </Field>
+      <Field label={t("set.gvmPassword")} hint={s.gvm_configured ? t("set.gvmPasswordKeep") : null}>
+        <input className="mono" type="password" value={password} onChange={(e) => setPassword(e.target.value)}
+               disabled={!isAdmin} autoComplete="off" required placeholder={t("set.gvmPasswordPh")} />
+      </Field>
+      <p className="field-hint span-2">{t("set.gvmHow")}</p>
+      {error && <p className="form-error span-2" role="alert">{error}</p>}
+      {isAdmin ? (
+        <div className="span-2 form-actions"><button type="submit" className="btn btn-primary" disabled={busy}>{t("set.save")}</button></div>
+      ) : (
+        <p className="q-ro span-2">{t("set.gvmAdminOnly")}</p>
       )}
     </form>
   );

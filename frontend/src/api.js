@@ -65,6 +65,8 @@ export const api = {
   deleteSchedule: (id) => req("DELETE", `/api/schedules/${id}`),
   settings: () => req("GET", "/api/settings"),
   saveDojo: (url, api_key) => req("POST", "/api/settings/defectdojo", { url, api_key }),
+  saveGvm: (host, port, username, password) =>
+    req("POST", "/api/settings/gvm", { host, port, username, password }),
   users: () => req("GET", "/api/users"),
   addUser: (body) => req("POST", "/api/users", body),
   deleteUser: (id) => req("DELETE", `/api/users/${id}`),

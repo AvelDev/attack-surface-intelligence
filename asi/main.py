@@ -13,7 +13,7 @@ from fastapi import Cookie, Depends, FastAPI, File, Form, HTTPException, Respons
 from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, Response
 from pydantic import BaseModel
 
-from . import auth, crypto, dashboard, db, defectdojo, geo, scanner
+from . import auth, crypto, dashboard, db, defectdojo, geo, gvm_scan, scanner
 from . import signatures as signatures_mod
 from . import targets as targets_mod
 
@@ -662,12 +662,24 @@ class DefectDojoSettingsReq(BaseModel):
     api_key: str
 
 
+class GvmSettingsReq(BaseModel):
+    host: str
+    port: int = 9390
+    username: str = "admin"
+    password: str
+
+
 @app.get("/api/settings")
 def get_settings(user: dict = Depends(auth.require("read"))):
     dd_url, dd_key = defectdojo.get_config()
+    gvm_host, gvm_port, gvm_username, gvm_password = gvm_scan.get_config()
     return {
         "defectdojo_url": dd_url or "",
         "defectdojo_configured": bool(dd_url and dd_key),
+        "gvm_host": gvm_host or "",
+        "gvm_port": gvm_port,
+        "gvm_username": gvm_username or "",
+        "gvm_configured": bool(gvm_host and gvm_password),
         "openvas_configured": scanner.tool_status().get("openvas", {}).get("installed", False)
     }
 
@@ -686,6 +698,28 @@ def save_defectdojo_settings(req: DefectDojoSettingsReq, user: dict = Depends(au
         c.execute("INSERT OR REPLACE INTO settings(key, value) VALUES('defectdojo_url', ?)", (url,))
         c.execute("INSERT OR REPLACE INTO settings(key, value) VALUES('defectdojo_api_key', ?)",
                   (crypto.enc(req.api_key.strip()),))
+    return {"ok": True}
+
+
+@app.post("/api/settings/gvm")
+def save_gvm_settings(req: GvmSettingsReq, user: dict = Depends(auth.require("admin"))):
+    # admin-only, jak DefectDojo powyżej - te dane logowania idą plaintextem po sieci
+    # (zob. gvm_scan.PlainTCPConnection), więc i walidacja hosta (prywatny/loopback) tu,
+    # nie dopiero przy starcie skanu - szybki, czytelny feedback zamiast cichej porażki później.
+    host = req.host.strip()
+    try:
+        gvm_scan.validate_host(host)
+    except ValueError as e:
+        raise HTTPException(400, str(e))
+    if not (1 <= req.port <= 65535):
+        raise HTTPException(400, "Port musi być w zakresie 1-65535.")
+    with db.conn() as c:
+        c.execute("INSERT OR REPLACE INTO settings(key, value) VALUES('gvm_host', ?)", (host,))
+        c.execute("INSERT OR REPLACE INTO settings(key, value) VALUES('gvm_port', ?)", (str(req.port),))
+        c.execute("INSERT OR REPLACE INTO settings(key, value) VALUES('gvm_username', ?)",
+                  (req.username.strip() or "admin",))
+        c.execute("INSERT OR REPLACE INTO settings(key, value) VALUES('gvm_password', ?)",
+                  (crypto.enc(req.password.strip()),))
     return {"ok": True}
 
 

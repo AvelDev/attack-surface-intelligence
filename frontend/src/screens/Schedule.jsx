@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { Trash2 } from "lucide-react";
 import { api, can } from "../api.js";
 import { useI18n } from "../i18n.jsx";
@@ -115,6 +115,16 @@ function SchedForm({ onAdd }) {
   const [rate, setRate] = useState(300);
   const [nuclei, setNuclei] = useState(true);
   const [busy, setBusy] = useState(false);
+  // Ten sam problem co w NewScan.jsx: zaznaczony checkbox dla narzędzia, którego nie ma
+  // na serwerze, nic nie da - lepiej od razu go wyłączyć i powiedzieć dlaczego.
+  const [tools, setTools] = useState(null);
+  useEffect(() => {
+    let live = true;
+    api.tools().then((d) => live && setTools(d)).catch(() => {});
+    return () => { live = false; };
+  }, []);
+  const nucleiOk = tools ? !!tools.nuclei?.installed : true;
+  useEffect(() => { if (!nucleiOk) setNuclei(false); }, [nucleiOk]);
 
   const submit = async (e) => {
     e.preventDefault();
@@ -144,7 +154,11 @@ function SchedForm({ onAdd }) {
           {RATES.map((r) => <option key={r} value={r}>{t(`ns.rate${r}`)}</option>)}
         </select>
       </Field>
-      <div className="span-2"><Check checked={nuclei} onChange={setNuclei}>{t("ns.nuclei")}</Check></div>
+      <div className="span-2">
+        <Check checked={nuclei} onChange={setNuclei} disabled={!nucleiOk}>
+          {t("ns.nuclei")}{!nucleiOk && ` — ${t("ns.unavailable")}`}
+        </Check>
+      </div>
       <div className="span-2 form-actions">
         <button type="submit" className="btn btn-primary" disabled={busy}>{t("sch.add")}</button>
       </div>

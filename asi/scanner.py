@@ -134,7 +134,8 @@ def tool_status():
     if out["naabu"]["installed"]:
         out["naabu"]["syn"] = _naabu_can_syn(out["naabu"]["path"])
     gs = gvm_scan.status()
-    out["openvas"] = {"installed": gs["reachable"], "path": f"{gvm_scan.HOST}:{gvm_scan.PORT}" if gs["configured"] else None}
+    gvm_host, gvm_port, _u, _p = gvm_scan.get_config()
+    out["openvas"] = {"installed": gs["reachable"], "path": f"{gvm_host}:{gvm_port}" if gs["configured"] else None}
     out["defectdojo"] = {"installed": defectdojo.configured(), "path": _host_only(defectdojo.get_config()[0])}
     return out
 
