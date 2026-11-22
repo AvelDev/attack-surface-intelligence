@@ -108,10 +108,10 @@ export function Empty({ title, children }) {
   );
 }
 
-export function Field({ label, hint, children, className = "" }) {
+export function Field({ label, hint, children, className = "", action }) {
   return (
     <label className={`field ${className}`}>
-      <span>{label}</span>
+      {action ? <span className="field-head"><span>{label}</span>{action}</span> : <span>{label}</span>}
       {children}
       {hint && <small className="field-hint">{hint}</small>}
     </label>

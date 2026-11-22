@@ -14,6 +14,9 @@
    analizy danych. */
 :root {
   --bg: #050507;
+  --header-bg: rgba(5,5,7,0.55);
+  --solid: #0a0a0c;
+  --panel-shadow: none;
   --panel: rgba(255,255,255,0.025);
   --line: rgba(255,255,255,0.10);
   --line-strong: rgba(255,255,255,0.22);
@@ -28,6 +31,30 @@
   --mono: 'JetBrains Mono', monospace;
   --sans: 'Plus Jakarta Sans', system-ui, sans-serif;
 }
+/* Jasny motyw świadomie obejmuje też tło strony (--bg) - canvas globusu ma alpha:true, więc
+   wszędzie, gdzie scena 3D nic nie rysuje, przebija przez niego tło body. Punkty siatki/
+   gwiazdy w initThree() są ciemnoszare (zob. dotMat/wireMat/starfield) - czytelne jako "atrament"
+   zarówno na czarnym, jak i jasnym tle, więc nie trzeba ich osobno przebarwiać na motyw.
+   Panele floatują nad canvasem jak szkło, więc dostają wyraźny cień (--panel-shadow), żeby
+   odciąć się od tła pod spodem. #globeTooltip zostaje na stałe ciemny (mały dymek, nie
+   główne tło) - czytelny niezależnie od tego, jaki motyw akurat prześwituje pod nim. */
+:root[data-theme="light"] {
+  --header-bg: rgba(246,247,249,0.88);
+  --solid: #ffffff;
+  --panel-shadow: 0 10px 28px rgba(0,0,0,0.35);
+  --panel: rgba(246,247,249,0.96);
+  --line: rgba(15,17,21,0.14);
+  --line-strong: rgba(15,17,21,0.32);
+  --fg: #15171b;
+  --mut: #5a5e67;
+  --accent: #b35f17;
+  --crit: #c93333;
+  --high: #b35f17;
+  --med: #8a6a12;
+  --low: #1f5f9e;
+  --ok: #178a5d;
+  --bg: #f2f2ef;
+}
 * { box-sizing: border-box; }
 body {
   margin: 0; background: var(--bg); color: var(--fg); font-family: var(--sans);
@@ -38,7 +65,8 @@ body {
 header {
   position: absolute; top: 0; left: 0; right: 0; height: 64px; padding: 0 24px;
   display: flex; align-items: center; justify-content: space-between;
-  border-bottom: 1px solid var(--line); z-index: 10; background: rgba(5,5,7,0.55);
+  border-bottom: 1px solid var(--line); z-index: 10; background: var(--header-bg);
+  box-shadow: var(--panel-shadow);
 }
 .header-brand { display: flex; align-items: center; gap: 12px; }
 .brand-mark {
@@ -57,7 +85,21 @@ header {
   text-decoration: none; display: inline-flex; align-items: center; gap: 6px; transition: border-color .15s;
 }
 .hud-btn:hover { border-color: var(--line-strong); }
-select.hud-btn { background: #0a0a0c; }
+select.hud-btn { background: var(--solid); }
+
+.seg { display: inline-flex; border: 1px solid var(--line); border-radius: 3px; overflow: hidden; }
+.seg button {
+  background: transparent; color: var(--mut); border: 0; padding: 7px 10px; cursor: pointer;
+  font-family: var(--sans); font-size: 11px; font-weight: 600; transition: background .15s, color .15s;
+}
+.seg button + button { border-left: 1px solid var(--line); }
+.seg button[aria-pressed="true"], .seg button.is-on { background: var(--panel); color: var(--fg); }
+.icon-btn {
+  background: transparent; color: var(--fg); border: 1px solid var(--line); border-radius: 3px;
+  width: 30px; height: 30px; display: inline-flex; align-items: center; justify-content: center;
+  cursor: pointer; transition: border-color .15s;
+}
+.icon-btn:hover { border-color: var(--line-strong); }
 
 .hud-left, .hud-right {
   position: absolute; top: 80px; bottom: 24px; width: 340px; display: flex;
@@ -68,7 +110,7 @@ select.hud-btn { background: #0a0a0c; }
 
 .hud-panel {
   background: var(--panel); border: 1px solid var(--line); border-radius: 3px; padding: 16px;
-  display: flex; flex-direction: column; position: relative;
+  display: flex; flex-direction: column; position: relative; min-height: 0; box-shadow: var(--panel-shadow);
 }
 .hud-panel-title {
   font-size: 11px; font-weight: 600; color: var(--mut); margin-bottom: 12px;
@@ -100,9 +142,10 @@ select.hud-btn { background: #0a0a0c; }
 .sev-bar-val { width: 24px; text-align: right; color: var(--fg); }
 
 /* Threat feed */
-.threat-feed { flex: 1; overflow-y: auto; display: flex; flex-direction: column; gap: 6px; max-height: 230px; padding-right: 2px; }
-.threat-feed::-webkit-scrollbar { width: 3px; }
-.threat-feed::-webkit-scrollbar-thumb { background: var(--line-strong); }
+.threat-feed { flex: 1; min-height: 0; overflow-y: auto; display: flex; flex-direction: column; gap: 6px; padding-right: 2px; }
+.threat-feed::-webkit-scrollbar, .geo-scroll::-webkit-scrollbar { width: 3px; }
+.threat-feed::-webkit-scrollbar-thumb, .geo-scroll::-webkit-scrollbar-thumb { background: var(--line-strong); }
+.geo-scroll { flex: 1; min-height: 0; overflow-y: auto; }
 .threat-feed-item { border: 1px solid var(--line); border-left: 2px solid var(--mut); border-radius: 2px; padding: 7px 9px; font-size: 11.5px; }
 .threat-feed-item.crit { border-left-color: var(--crit); }
 .threat-feed-item.high { border-left-color: var(--high); }
@@ -121,17 +164,28 @@ select.hud-btn { background: #0a0a0c; }
   position: absolute; bottom: 20px; left: 50%; transform: translateX(-50%); display: flex;
   align-items: center; gap: 18px; border: 1px solid var(--line); border-radius: 20px;
   padding: 7px 18px; z-index: 10; font-family: var(--mono); font-size: 10.5px; color: var(--mut);
-  background: rgba(5,5,7,0.6);
+  background: var(--header-bg); box-shadow: var(--panel-shadow);
 }
 .legend-item { display: flex; align-items: center; gap: 6px; }
 .legend-dot { width: 7px; height: 7px; border-radius: 50%; }
 .legend-dot.crit { background: var(--crit); } .legend-dot.high { background: var(--high); }
 .legend-dot.ok { background: var(--ok); } .legend-dot.accent { background: var(--accent); }
+/* Dymek wisi nad globusem/sceną 3D, która zostaje ciemna niezależnie od motywu (zob. komentarz
+   przy :root[data-theme="light"]) - stałe, nie-motywowe kolory, żeby zawsze pasował do tła pod nim. */
+#globeTooltip {
+  position: fixed; z-index: 50; pointer-events: none;
+  background: rgba(10,10,14,0.92); border: 1px solid rgba(255,255,255,0.22);
+  padding: 6px 10px; border-radius: 4px; font-family: var(--mono); font-size: 11px;
+  color: #eceef0; display: none; white-space: nowrap;
+}
+#globeTooltip .ip { font-weight: 600; }
+#globeTooltip .meta { color: #80848c; margin-left: 6px; }
 </style>
 </head>
 <body>
 
 <canvas id="webgl-canvas"></canvas>
+<div id="globeTooltip"></div>
 
 <header>
   <div class="header-brand">
@@ -141,19 +195,27 @@ select.hud-btn { background: #0a0a0c; }
     <div><h1>Attack Surface Intelligence</h1><span class="sub">Command Center - CBI AGH</span></div>
   </div>
   <div class="header-center">
-    <span><span class="pulse-dot"></span>SYSTEM AKTYWNY</span>
-    <span>CEL: <b id="hdrTarget">—</b></span>
-    <span>CZAS: <b id="hdrTime">00:00:00</b></span>
+    <span><span class="pulse-dot"></span><span data-i18n="sysActive">SYSTEM AKTYWNY</span></span>
+    <span><span data-i18n="target">CEL:</span> <b id="hdrTarget">—</b></span>
+    <span><span data-i18n="time">CZAS:</span> <b id="hdrTime">00:00:00</b></span>
   </div>
   <div class="header-right">
-    <select id="scanSelector" class="hud-btn"><option value="">Wybierz skan...</option></select>
-    <a href="/" class="hud-btn">← Dashboard</a>
+    <select id="scanSelector" class="hud-btn"><option value="" data-i18n="selectScan">Wybierz skan...</option></select>
+    <div class="seg" id="langSeg" role="group" aria-label="PL/EN">
+      <button type="button" data-lang="pl">PL</button>
+      <button type="button" data-lang="en">EN</button>
+    </div>
+    <button type="button" id="themeBtn" class="icon-btn" aria-label="Przełącz motyw" title="Przełącz motyw">
+      <svg id="themeIconSun" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75"><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M2 12h2M20 12h2M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4"/></svg>
+      <svg id="themeIconMoon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" style="display:none"><path d="M21 12.8A9 9 0 1 1 11.2 3a7 7 0 0 0 9.8 9.8z"/></svg>
+    </button>
+    <a href="/" class="hud-btn" id="backLink">← <span data-i18n="back">Przegląd</span></a>
   </div>
 </header>
 
 <div class="hud-left">
   <div class="hud-panel">
-    <div class="hud-panel-title"><span>Wynik ryzyka</span><span class="tag">0-100</span></div>
+    <div class="hud-panel-title"><span data-i18n="riskScore">Wynik ryzyka</span><span class="tag">0-100</span></div>
     <div class="radial-meter-box">
       <div class="radial-ring">
         <svg viewBox="0 0 100 100">
@@ -163,59 +225,58 @@ select.hud-btn { background: #0a0a0c; }
         <div class="center-val" id="riskVal">0</div>
       </div>
       <div class="kpi-mini">
-        <div>Krytyczne: <b style="color:var(--crit)" id="kpiCrit">0</b></div>
-        <div>Wysokie: <b style="color:var(--high)" id="kpiHigh">0</b></div>
-        <div>Średnie: <b style="color:var(--med)" id="kpiMed">0</b></div>
-        <div>Zasoby: <b id="kpiAssets">0</b></div>
+        <div><span data-i18n="critical">Krytyczne:</span> <b style="color:var(--crit)" id="kpiCrit">0</b></div>
+        <div><span data-i18n="high">Wysokie:</span> <b style="color:var(--high)" id="kpiHigh">0</b></div>
+        <div><span data-i18n="medium">Średnie:</span> <b style="color:var(--med)" id="kpiMed">0</b></div>
+        <div><span data-i18n="assets">Zasoby:</span> <b id="kpiAssets">0</b></div>
       </div>
     </div>
   </div>
 
   <div class="hud-panel">
-    <div class="hud-panel-title"><span>Trend oceny ryzyka</span><span class="tag">HISTORIA CELU</span></div>
-    <div class="sparkline-box" id="sparklineBox"><div class="sparkline-empty">Za mało skanów tego celu.</div></div>
+    <div class="hud-panel-title"><span data-i18n="riskTrend">Trend oceny ryzyka</span><span class="tag" data-i18n="targetHistory">HISTORIA CELU</span></div>
+    <div class="sparkline-box" id="sparklineBox"><div class="sparkline-empty" data-i18n="notEnoughScans">Za mało skanów tego celu.</div></div>
   </div>
 
   <div class="hud-panel">
-    <div class="hud-panel-title"><span>Rozkład ustaleń</span><span class="tag">SEVERITY</span></div>
-    <div class="sev-bar-item"><span class="sev-bar-lbl" style="color:var(--crit)">Krytyczne</span><div class="sev-bar-track"><div class="sev-bar-fill" id="barCrit" style="width:0%;background:var(--crit)"></div></div><span class="sev-bar-val" id="cntCrit">0</span></div>
-    <div class="sev-bar-item"><span class="sev-bar-lbl" style="color:var(--high)">Wysokie</span><div class="sev-bar-track"><div class="sev-bar-fill" id="barHigh" style="width:0%;background:var(--high)"></div></div><span class="sev-bar-val" id="cntHigh">0</span></div>
-    <div class="sev-bar-item"><span class="sev-bar-lbl" style="color:var(--med)">Średnie</span><div class="sev-bar-track"><div class="sev-bar-fill" id="barMed" style="width:0%;background:var(--med)"></div></div><span class="sev-bar-val" id="cntMed">0</span></div>
-    <div class="sev-bar-item"><span class="sev-bar-lbl" style="color:var(--low)">Niskie</span><div class="sev-bar-track"><div class="sev-bar-fill" id="barLow" style="width:0%;background:var(--low)"></div></div><span class="sev-bar-val" id="cntLow">0</span></div>
+    <div class="hud-panel-title"><span data-i18n="findingsBreakdown">Rozkład ustaleń</span><span class="tag">SEVERITY</span></div>
+    <div class="sev-bar-item"><span class="sev-bar-lbl" style="color:var(--crit)" data-i18n="criticalLbl">Krytyczne</span><div class="sev-bar-track"><div class="sev-bar-fill" id="barCrit" style="width:0%;background:var(--crit)"></div></div><span class="sev-bar-val" id="cntCrit">0</span></div>
+    <div class="sev-bar-item"><span class="sev-bar-lbl" style="color:var(--high)" data-i18n="highLbl">Wysokie</span><div class="sev-bar-track"><div class="sev-bar-fill" id="barHigh" style="width:0%;background:var(--high)"></div></div><span class="sev-bar-val" id="cntHigh">0</span></div>
+    <div class="sev-bar-item"><span class="sev-bar-lbl" style="color:var(--med)" data-i18n="mediumLbl">Średnie</span><div class="sev-bar-track"><div class="sev-bar-fill" id="barMed" style="width:0%;background:var(--med)"></div></div><span class="sev-bar-val" id="cntMed">0</span></div>
+    <div class="sev-bar-item"><span class="sev-bar-lbl" style="color:var(--low)" data-i18n="lowLbl">Niskie</span><div class="sev-bar-track"><div class="sev-bar-fill" id="barLow" style="width:0%;background:var(--low)"></div></div><span class="sev-bar-val" id="cntLow">0</span></div>
   </div>
 
   <div class="hud-panel" style="flex:1">
     <div class="hud-panel-title"><span>Scanner HQ</span><span class="tag">CBI AGH</span></div>
     <div class="kpi-mini">
-      <div>Lokalizacja: <b>Kraków, Polska</b></div>
-      <div>Współrzędne: <b>50.0664°N, 19.9135°E</b></div>
-      <div>Aktywne połączenia: <b id="kpiArcs">0</b></div>
-      <div>Orkiestracja: <b>Nmap / Naabu / Httpx / Nuclei</b></div>
+      <div><span data-i18n="location">Lokalizacja:</span> <b data-i18n="krakow">Kraków, Polska</b></div>
+      <div><span data-i18n="coords">Współrzędne:</span> <b>50.0664°N, 19.9135°E</b></div>
+      <div><span data-i18n="activeConn">Aktywne połączenia:</span> <b id="kpiArcs">0</b></div>
+      <div><span data-i18n="orchestration">Orkiestracja:</span> <b>Nmap / Naabu / Httpx / Nuclei</b></div>
     </div>
   </div>
 </div>
 
 <div class="hud-right">
   <div class="hud-panel" style="flex:1.1">
-    <div class="hud-panel-title"><span>Strumień ustaleń</span><span class="tag">LIVE</span></div>
-    <div class="threat-feed" id="threatFeed"><div style="color:var(--mut);text-align:center;padding:16px;font-size:12px;">Oczekiwanie na dane...</div></div>
+    <div class="hud-panel-title"><span data-i18n="findingsStream">Strumień ustaleń</span><span class="tag">LIVE</span></div>
+    <div class="threat-feed" id="threatFeed"><div style="color:var(--mut);text-align:center;padding:16px;font-size:12px;" data-i18n="waitingForData">Oczekiwanie na dane...</div></div>
   </div>
   <div class="hud-panel" style="flex:1">
-    <div class="hud-panel-title"><span>Rozkład geograficzny</span><span class="tag">IP / GEO</span></div>
-    <div style="overflow-y:auto;max-height:200px;">
+    <div class="hud-panel-title"><span data-i18n="geoDistribution">Rozkład geograficzny</span><span class="tag">IP / GEO</span></div>
+    <div class="geo-scroll">
       <table class="geo-table">
-        <thead><tr><td>IP / Host</td><td>Lokalizacja</td><td style="text-align:right">Status</td></tr></thead>
-        <tbody id="geoTableBody"><tr><td colspan="3" style="color:var(--mut);text-align:center;">Brak danych.</td></tr></tbody>
+        <thead><tr><td>IP / Host</td><td data-i18n="location2">Lokalizacja</td><td style="text-align:right">Status</td></tr></thead>
+        <tbody id="geoTableBody"><tr><td colspan="3" style="color:var(--mut);text-align:center;" data-i18n="noData">Brak danych.</td></tr></tbody>
       </table>
     </div>
   </div>
 </div>
 
 <div class="hud-bottom-center">
-  <div class="legend-item"><div class="legend-dot ok"></div><span>HQ skanera</span></div>
-  <div class="legend-item"><div class="legend-dot crit"></div><span>Krytyczne / wysokie</span></div>
-  <div class="legend-item"><div class="legend-dot high"></div><span>Średnie</span></div>
-  <div class="legend-item"><div class="legend-dot accent"></div><span>Aktywne połączenie</span></div>
+  <div class="legend-item"><div class="legend-dot crit"></div><span data-i18n="legendCrit">Krytyczne / wysokie</span></div>
+  <div class="legend-item"><div class="legend-dot high"></div><span data-i18n="legendMed">Średnie</span></div>
+  <div class="legend-item"><div class="legend-dot accent"></div><span data-i18n="legendActive">Aktywne połączenie</span></div>
 </div>
 
 <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"
@@ -228,8 +289,118 @@ select.hud-btn { background: #0a0a0c; }
 <script>
 setInterval(() => { document.getElementById('hdrTime').textContent = new Date().toTimeString().split(' ')[0]; }, 1000);
 
+// Motyw i język: te same klucze localStorage co w panelu React (frontend/src/App.jsx,
+// frontend/src/i18n.jsx) - wybór w jednym widoku przenosi się na drugi, bo to ten sam origin.
+function readTheme() {
+  try { const v = localStorage.getItem('asi.theme'); if (v === 'light' || v === 'dark') return v; } catch (e) {}
+  return 'dark';
+}
+function readLang() {
+  try { const v = localStorage.getItem('asi.lang'); if (v === 'pl' || v === 'en') return v; } catch (e) {}
+  return (navigator.language || 'pl').toLowerCase().startsWith('pl') ? 'pl' : 'en';
+}
+let theme = readTheme();
+let lang = readLang();
+let lastData = null, lastScanList = null;  // ostatnio wczytany skan - do ponownego wyrenderowania po zmianie języka
+
+const L = {
+  pl: {
+    sysActive: 'SYSTEM AKTYWNY', target: 'CEL:', time: 'CZAS:', selectScan: 'Wybierz skan...',
+    back: 'Przegląd', riskScore: 'Wynik ryzyka', riskTrend: 'Trend oceny ryzyka',
+    targetHistory: 'HISTORIA CELU', notEnoughScans: 'Za mało skanów tego celu.',
+    findingsBreakdown: 'Rozkład ustaleń', critical: 'Krytyczne:', high: 'Wysokie:', medium: 'Średnie:',
+    assets: 'Zasoby:', criticalLbl: 'Krytyczne', highLbl: 'Wysokie', mediumLbl: 'Średnie', lowLbl: 'Niskie',
+    location: 'Lokalizacja:', krakow: 'Kraków, Polska', coords: 'Współrzędne:',
+    activeConn: 'Aktywne połączenia:', orchestration: 'Orkiestracja:', findingsStream: 'Strumień ustaleń',
+    waitingForData: 'Oczekiwanie na dane...', geoDistribution: 'Rozkład geograficzny', location2: 'Lokalizacja',
+    noData: 'Brak danych.', legendCrit: 'Krytyczne / wysokie', legendMed: 'Średnie', legendActive: 'Aktywne połączenie',
+    noFindings: 'Brak ustaleń.', scoreWord: 'Wynik',
+  },
+  en: {
+    sysActive: 'SYSTEM ACTIVE', target: 'TARGET:', time: 'TIME:', selectScan: 'Select a scan...',
+    back: 'Overview', riskScore: 'Risk score', riskTrend: 'Risk score trend',
+    targetHistory: 'TARGET HISTORY', notEnoughScans: 'Not enough scans of this target yet.',
+    findingsBreakdown: 'Findings breakdown', critical: 'Critical:', high: 'High:', medium: 'Medium:',
+    assets: 'Assets:', criticalLbl: 'Critical', highLbl: 'High', mediumLbl: 'Medium', lowLbl: 'Low',
+    location: 'Location:', krakow: 'Kraków, Poland', coords: 'Coordinates:',
+    activeConn: 'Active connections:', orchestration: 'Orchestration:', findingsStream: 'Findings stream',
+    waitingForData: 'Waiting for data...', geoDistribution: 'Geographic distribution', location2: 'Location',
+    noData: 'No data.', legendCrit: 'Critical / high', legendMed: 'Medium', legendActive: 'Active connection',
+    noFindings: 'No findings.', scoreWord: 'Score',
+  },
+};
+
+// Tytuły/zalecenia ustaleń źródła "builtin" (zob. asi/scanner.py RISKY/SEC_HEADERS/ctx.finding)
+// to treść wyniku skanu, nie UI tej strony - ta sama, zamknięta tabela co
+// frontend/src/i18n.jsx::FINDING_EN (dwie osobne apki, bez wspólnego modułu JS do dzielenia
+// tego między nimi). Nuclei/sygnatury celowo pominięte - zob. komentarz przy FINDING_EN.
+const FINDING_EN = {
+  'Telnet wystawiony do internetu': 'Telnet exposed to the internet',
+  'FTP wystawiony do internetu': 'FTP exposed to the internet',
+  'SMB wystawiony do internetu': 'SMB exposed to the internet',
+  'MS-RPC wystawiony do internetu': 'MS-RPC exposed to the internet',
+  'NetBIOS wystawiony do internetu': 'NetBIOS exposed to the internet',
+  'rpcbind wystawiony do internetu': 'rpcbind exposed to the internet',
+  'RDP wystawiony do internetu': 'RDP exposed to the internet',
+  'VNC wystawiony do internetu': 'VNC exposed to the internet',
+  'Baza MySQL dostępna z internetu': 'MySQL database reachable from the internet',
+  'Baza PostgreSQL dostępna z internetu': 'PostgreSQL database reachable from the internet',
+  'Baza MSSQL dostępna z internetu': 'MSSQL database reachable from the internet',
+  'Redis dostępny z internetu': 'Redis reachable from the internet',
+  'MongoDB dostępna z internetu': 'MongoDB reachable from the internet',
+  'Elasticsearch dostępny z internetu': 'Elasticsearch reachable from the internet',
+  'PPTP VPN (przestarzały protokół)': 'PPTP VPN (deprecated protocol)',
+  'Brak nagłówka Content-Security-Policy': 'Missing Content-Security-Policy header',
+  'Brak nagłówka X-Content-Type-Options': 'Missing X-Content-Type-Options header',
+  'Brak ochrony przed clickjackingiem (X-Frame-Options)': 'No clickjacking protection (X-Frame-Options)',
+  'Możliwy subdomain takeover (CNAME do usługi zewnętrznej bez celu)':
+    'Possible subdomain takeover (CNAME to an external service with no target)',
+  'Subdomena nie rozwiązuje się w DNS (możliwy dangling record)':
+    'Subdomain does not resolve in DNS (possible dangling record)',
+  'Usługa dostępna po nieszyfrowanym HTTP bez przekierowania': 'Service reachable over unencrypted HTTP with no redirect',
+  'Certyfikat TLS wygasł': 'TLS certificate has expired',
+  'Certyfikat TLS wkrótce wygasa': 'TLS certificate expires soon',
+  'Niepoprawny certyfikat TLS': 'Invalid TLS certificate',
+  'Brak nagłówka HSTS': 'Missing HSTS header',
+  'Ujawnienie wersji oprogramowania w nagłówku Server': 'Software version disclosed in the Server header',
+  'Potencjalny panel administracyjny/logowania dostępny publicznie': 'Potential admin/login panel exposed publicly',
+};
+const tf = (text) => (lang === 'en' ? FINDING_EN[text] || text : text);
+
+function applyTheme() {
+  document.documentElement.dataset.theme = theme;
+  document.getElementById('themeIconSun').style.display = theme === 'dark' ? '' : 'none';
+  document.getElementById('themeIconMoon').style.display = theme === 'dark' ? 'none' : '';
+}
+function applyLang() {
+  document.documentElement.lang = lang;
+  document.querySelectorAll('[data-i18n]').forEach((el) => { el.textContent = L[lang][el.dataset.i18n]; });
+  document.querySelectorAll('#langSeg button').forEach((b) => b.setAttribute('aria-pressed', b.dataset.lang === lang));
+  const themeLabel = lang === 'pl' ? 'Przełącz motyw' : 'Toggle theme';
+  document.getElementById('themeBtn').setAttribute('aria-label', themeLabel);
+  document.getElementById('themeBtn').setAttribute('title', themeLabel);
+  if (lastData) { updateHUD(lastData); drawSparkline(lastData, lastScanList); }
+  if (lastScanList) renderScanSelect(lastScanList);
+}
+document.getElementById('themeBtn').addEventListener('click', () => {
+  theme = theme === 'dark' ? 'light' : 'dark';
+  try { localStorage.setItem('asi.theme', theme); } catch (e) {}
+  applyTheme();
+});
+document.getElementById('langSeg').addEventListener('click', (e) => {
+  const b = e.target.closest('button[data-lang]');
+  if (!b) return;
+  lang = b.dataset.lang;
+  try { localStorage.setItem('asi.lang', lang); } catch (e) {}
+  applyLang();
+});
+applyTheme();
+applyLang();
+
 let scene, camera, renderer, controls, globeGroup;
-let arcObjects = [], markerObjects = [];
+let arcObjects = [], markerObjects = [], pinMeshes = [];
+const raycaster = new THREE.Raycaster();
+const pointerNdc = new THREE.Vector2();
 const GLOBE_RADIUS = 100;
 const HQ_COORDS = { lat: 50.0664, lon: 19.9135 };
 const SEV_COLOR = { critical: 0xff5c5c, high: 0xff9d4d, medium: 0xe8c468, low: 0x6fa8dc, info: 0x6fa8dc };
@@ -272,9 +443,40 @@ function initThree() {
   globeGroup.add(new THREE.Mesh(wireGeo, wireMat));
 
   createStarfield();
-  addHQMarker();
+  canvas.addEventListener('mousemove', onPointerMove);
+  canvas.addEventListener('mouseleave', onPointerLeave);
   addEventListener('resize', onResize);
   animate();
+}
+
+const globeTooltip = document.getElementById('globeTooltip');
+
+// Hover nad pinem hosta: pokazuje adres w dymku i wstrzymuje auto-obrót (inaczej cel ucieka
+// spod kursora, zanim zdąży się przeczytać) - wyjście poza pin wznawia obrót od razu.
+function onPointerMove(e) {
+  const rect = renderer.domElement.getBoundingClientRect();
+  pointerNdc.x = ((e.clientX - rect.left) / rect.width) * 2 - 1;
+  pointerNdc.y = -((e.clientY - rect.top) / rect.height) * 2 + 1;
+  raycaster.setFromCamera(pointerNdc, camera);
+  const hit = raycaster.intersectObjects(pinMeshes)[0];
+  if (hit) {
+    const node = hit.object.userData.node;
+    globeTooltip.innerHTML = `<span class="ip">${esc(node.ip)}</span>`
+      + `<span class="meta">${esc(node.city)}, ${esc(node.country)} · ${esc((node.severity || '').toUpperCase())}</span>`;
+    globeTooltip.style.left = (e.clientX + 14) + 'px';
+    globeTooltip.style.top = (e.clientY + 14) + 'px';
+    globeTooltip.style.display = 'block';
+    renderer.domElement.style.cursor = 'pointer';
+    controls.autoRotate = false;
+  } else {
+    onPointerLeave();
+  }
+}
+
+function onPointerLeave() {
+  globeTooltip.style.display = 'none';
+  renderer.domElement.style.cursor = 'default';
+  controls.autoRotate = true;
 }
 
 function createStarfield() {
@@ -293,16 +495,6 @@ function latLonToVector3(lat, lon, radius) {
   return new THREE.Vector3(-(radius * Math.sin(phi) * Math.cos(theta)), radius * Math.cos(phi), radius * Math.sin(phi) * Math.sin(theta));
 }
 
-function addHQMarker() {
-  const v = latLonToVector3(HQ_COORDS.lat, HQ_COORDS.lon, GLOBE_RADIUS + 1);
-  const dot = new THREE.Mesh(new THREE.SphereGeometry(1.8, 12, 12), new THREE.MeshBasicMaterial({ color: 0x3ddc97 }));
-  dot.position.copy(v);
-  globeGroup.add(dot);
-  const ring = new THREE.Mesh(new THREE.RingGeometry(2.4, 3.4, 24), new THREE.MeshBasicMaterial({ color: 0x3ddc97, side: THREE.DoubleSide, transparent: true, opacity: 0.6 }));
-  ring.position.copy(v); ring.lookAt(0, 0, 0);
-  globeGroup.add(ring);
-}
-
 function createArc(vStart, vEnd, colorHex) {
   const mid = new THREE.Vector3().addVectors(vStart, vEnd).multiplyScalar(0.5);
   mid.normalize().multiplyScalar(mid.length() + vStart.distanceTo(vEnd) * 0.3 + GLOBE_RADIUS * 0.3);
@@ -319,23 +511,78 @@ function clearGlobeThreats() {
   arcObjects = [];
   markerObjects.forEach(m => globeGroup.remove(m));
   markerObjects = [];
+  pinMeshes = [];
+}
+
+// Hosty sieci lokalnej lądują w promieniu jittera wokół HQ (zob. geo.py) - to nie są
+// realne, odległe lokalizacje. Same współrzędne (nawet rozrzucone) i tak dawały gęsto
+// nakładające się piny, a łuk HQ->host dla każdego z osobna, setki na raz, rysował jeden
+// zbity stożek zamiast czytelnej mapy. Dla tej grupy liczymy więc osobny układ w 3D,
+// zamiast ufać samym stopniom lat/lon.
+const LOCAL_CLUSTER_DEG = 5;
+function isNearHq(node) {
+  return Math.abs(node.lat - HQ_COORDS.lat) < LOCAL_CLUSTER_DEG && Math.abs(node.lon - HQ_COORDS.lon) < LOCAL_CLUSTER_DEG;
+}
+
+// Układ "słonecznika" (phyllotaxis): promień rośnie jak sqrt(i), kąt o złoty kąt na punkt -
+// przy dowolnym N piny mają z grubsza stały, gwarantowany odstęp od najbliższych sąsiadów
+// (zamiast losowego jittera, który przy setkach punktów i tak część z nich zbija w kupę).
+const GOLDEN_ANGLE = Math.PI * (3 - Math.sqrt(5));
+function sunflowerOffset(i, spacing) {
+  const r = spacing * Math.sqrt(i + 0.5);
+  const a = i * GOLDEN_ANGLE;
+  return [r * Math.cos(a), r * Math.sin(a)];
+}
+
+// Płaszczyzna styczna do globu w punkcie `normal`, żeby rozłożyć słonecznik płasko na
+// powierzchni kuli w tamtym miejscu, a potem zrzutować z powrotem na promień globu.
+function tangentBasis(normal) {
+  const n = normal.clone().normalize();
+  const up = Math.abs(n.y) < 0.99 ? new THREE.Vector3(0, 1, 0) : new THREE.Vector3(1, 0, 0);
+  const u = new THREE.Vector3().crossVectors(up, n).normalize();
+  const v = new THREE.Vector3().crossVectors(n, u).normalize();
+  return [u, v];
 }
 
 function updateGlobeWithScanData(data) {
   clearGlobeThreats();
   const nodes = data.geo_nodes || [];
   const hqPos = latLonToVector3(HQ_COORDS.lat, HQ_COORDS.lon, GLOBE_RADIUS + 1);
+  const [tu, tv] = tangentBasis(hqPos);
+  const local = nodes.filter((n) => !n.is_hq && isNearHq(n));
+  const remote = nodes.filter((n) => !n.is_hq && !isNearHq(n));
   let arcs = 0;
-  nodes.forEach(node => {
-    if (node.is_hq) return;
-    const pos = latLonToVector3(node.lat, node.lon, GLOBE_RADIUS + 1);
+
+  const addPin = (node, pos) => {
     const colorHex = SEV_COLOR[node.severity] ?? 0xff9d4d;
-    const pin = new THREE.Mesh(new THREE.SphereGeometry(node.severity === 'critical' ? 2 : 1.4, 12, 12), new THREE.MeshBasicMaterial({ color: colorHex }));
+    const pin = new THREE.Mesh(new THREE.SphereGeometry(node.severity === 'critical' ? 1.3 : 0.8, 12, 12), new THREE.MeshBasicMaterial({ color: colorHex }));
     pin.position.copy(pos);
-    globeGroup.add(pin); markerObjects.push(pin);
+    pin.userData.node = node;
+    globeGroup.add(pin); markerObjects.push(pin); pinMeshes.push(pin);
+    return pin;
+  };
+
+  // Lokalna sieć: słonecznik wokół HQ + krótkie proste połączenie do HQ dla każdego pinu -
+  // czytelny graf "gwiazda", bez wielkich łuków lecących przez pół globu dla sąsiada o metr dalej.
+  local.forEach((node, i) => {
+    const [ox, oy] = sunflowerOffset(i, 1.3);
+    const pos = hqPos.clone().addScaledVector(tu, ox).addScaledVector(tv, oy);
+    pos.normalize().multiplyScalar(GLOBE_RADIUS + 1);
+    addPin(node, pos);
+    const geom = new THREE.BufferGeometry().setFromPoints([hqPos, pos]);
+    const line = new THREE.Line(geom, new THREE.LineBasicMaterial({ color: 0xff9d4d, transparent: true, opacity: 0.35 }));
+    globeGroup.add(line);
+    markerObjects.push(line);
+  });
+
+  // Węzły faktycznie oddalone od HQ: jak dawniej, pełny łuk przez glob.
+  remote.forEach((node) => {
+    const pos = latLonToVector3(node.lat, node.lon, GLOBE_RADIUS + 1);
+    addPin(node, pos);
     createArc(hqPos, pos, 0xff9d4d);
     arcs++;
   });
+
   document.getElementById('kpiArcs').textContent = arcs;
 }
 
@@ -353,12 +600,20 @@ function animate() {
 // ----------------- Integracja z API (bez zmian logiki, tylko warstwa wizualna wyżej) -----------------
 async function api(path) { const r = await fetch(path); if (!r.ok) throw new Error(r.statusText); return r.json(); }
 
+function renderScanSelect(list) {
+  const sel = document.getElementById('scanSelector');
+  const keep = sel.value;
+  sel.innerHTML = `<option value="">${L[lang].selectScan}</option>` + list.map(s => `
+    <option value="${s.id}">#${s.id} - ${esc(s.target)} (${L[lang].scoreWord}: ${s.score})</option>
+  `).join('');
+  sel.value = keep;  // pusty string, gdy keep nie pasuje do żadnej opcji - normalny <select>
+}
+
 async function loadScansList() {
   const list = await api('/api/scans');
+  lastScanList = list;
   const sel = document.getElementById('scanSelector');
-  sel.innerHTML = '<option value="">Wybierz skan...</option>' + list.map(s => `
-    <option value="${s.id}">#${s.id} - ${esc(s.target)} (Score: ${s.score})</option>
-  `).join('');
+  renderScanSelect(list);
   if (list.length) { sel.value = list[0].id; loadScanData(list[0].id, list); }
   sel.onchange = () => { if (sel.value) loadScanData(sel.value, list); };
 }
@@ -367,16 +622,18 @@ async function loadScanData(sid, scanList) {
   try {
     const [d, geo] = await Promise.all([api('/api/scans/' + sid), api('/api/scans/' + sid + '/geo')]);
     d.geo_nodes = geo.geo_nodes;
+    lastData = d;
+    lastScanList = scanList || await api('/api/scans');
     updateHUD(d);
     updateGlobeWithScanData(d);
-    drawSparkline(d, scanList || await api('/api/scans'));
-  } catch (e) { console.error('Błąd pobierania skanu:', e); }
+    drawSparkline(d, lastScanList);
+  } catch (e) { console.error('Scan fetch error:', e); }
 }
 
 function drawSparkline(d, scanList) {
   const box = document.getElementById('sparklineBox');
   const hist = scanList.filter(s => s.target === d.scan.target && s.status === 'done').sort((a, b) => a.created - b.created);
-  if (hist.length < 2) { box.innerHTML = '<div class="sparkline-empty">Za mało skanów tego celu.</div>'; return; }
+  if (hist.length < 2) { box.innerHTML = `<div class="sparkline-empty">${L[lang].notEnoughScans}</div>`; return; }
   const w = 300, h = 54, pad = 4;
   const pts = hist.map((s, i) => {
     const x = pad + (i / (hist.length - 1)) * (w - pad * 2);
@@ -410,17 +667,17 @@ function updateHUD(d) {
 
   const feed = document.getElementById('threatFeed');
   feed.innerHTML = !d.findings.length
-    ? '<div style="color:var(--ok);text-align:center;padding:16px;font-size:12px;">Brak ustaleń.</div>'
+    ? `<div style="color:var(--ok);text-align:center;padding:16px;font-size:12px;">${L[lang].noFindings}</div>`
     : d.findings.slice(0, 15).map(f => `
       <div class="threat-feed-item ${f.severity === 'critical' ? 'crit' : (f.severity === 'high' ? 'high' : 'med')}">
-        <div class="threat-feed-title"><span>${esc(f.title)}</span><span style="font-family:var(--mono);text-transform:uppercase;color:var(--mut)">${esc(f.severity)}</span></div>
+        <div class="threat-feed-title"><span>${esc(tf(f.title))}</span><span style="font-family:var(--mono);text-transform:uppercase;color:var(--mut)">${esc(f.severity)}</span></div>
         <div class="threat-feed-sub">${esc(f.asset)} · ${esc(f.source)}</div>
       </div>`).join('');
 
   const tbody = document.getElementById('geoTableBody');
   const nodes = d.geo_nodes || [];
   tbody.innerHTML = !nodes.length
-    ? '<tr><td colspan="3" style="color:var(--mut);text-align:center;">Brak danych.</td></tr>'
+    ? `<tr><td colspan="3" style="color:var(--mut);text-align:center;">${L[lang].noData}</td></tr>`
     : nodes.map(n => `<tr><td>${esc(n.ip)}</td><td style="color:var(--mut)">${esc(n.city)}, ${esc(n.country)}</td>
         <td class="badge-cell"><span style="color:${n.severity === 'critical' ? 'var(--crit)' : (n.severity === 'high' ? 'var(--high)' : 'var(--ok)')}">${n.is_hq ? 'HQ' : esc(n.severity.toUpperCase())}</span></td></tr>`).join('');
 }

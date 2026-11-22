@@ -214,4 +214,6 @@ def _bump_score(scan_id):
     with db.conn() as c:
         sevs = [row["severity"] for row in
                 c.execute("SELECT severity FROM findings WHERE scan_id=?", (scan_id,))]
-        c.execute("UPDATE scans SET score=? WHERE id=?", (risk_score(sevs), scan_id))
+        hosts = c.execute(
+            "SELECT COUNT(*) AS n FROM assets WHERE scan_id=? AND kind='ip'", (scan_id,)).fetchone()["n"]
+        c.execute("UPDATE scans SET score=? WHERE id=?", (risk_score(sevs, hosts), scan_id))

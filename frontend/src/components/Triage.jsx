@@ -151,16 +151,17 @@ export default function Triage({ data, user, filter, onFilter, onTriage, onExpor
 }
 
 function QueueRow({ q, active, selected, canTriage, canExport, onFocus, onToggle, onDecide }) {
-  const { t } = useI18n();
+  const { t, tf } = useI18n();
   const [k, nAll] = q.confidence || [0, 0];
   const closed = q.triage !== "open";
   const kindLabel = q.kind === "finding" ? t(`sev.${q.severity}`) : t(`k.${q.kind}`);
+  const title = tf(q.title);
   return (
     <li
       className={`q-row${closed ? " is-closed" : ""}${selected ? " is-selected" : ""} sev-${q.severity}`}
       tabIndex={active ? 0 : -1}
       onFocus={onFocus}
-      aria-label={`${kindLabel}: ${q.value}. ${q.title}`}
+      aria-label={`${kindLabel}: ${q.value}. ${title}`}
     >
       {canExport && (
         <input
@@ -192,7 +193,7 @@ function QueueRow({ q, active, selected, canTriage, canExport, onFocus, onToggle
           <b className="q-kind-label">{kindLabel}</b>
           {q.tags.map((tg) => <span key={tg} className="chip">{t(`tag.${tg}`)}</span>)}
           {closed && <span className="q-status">{t("c.by", { status: t(`st.${q.triage}`), user: q.triage_by })}</span>}
-          <span className="q-title" title={q.title}>{q.title}</span>
+          <span className="q-title" title={title}>{title}</span>
         </span>
       </div>
       {canTriage && (

@@ -172,6 +172,12 @@ code, .mono { font-family: var(--font-mono); font-variant-numeric: tabular-nums;
 /* ---------- B: mapa ---------- */
 .mod-b { padding-bottom: 10px; }
 .b-scroll { flex: 1; min-height: 0; overflow: auto; padding: 4px 2px 8px; position: relative; display: flex; flex-direction: column; }
+/* Jeden zakres, mało płytek (typowo pojedynczy /24) - treść jest dużo niższa niż panel, więc
+   margin:auto na jedynym dziecku wyśrodkowuje ją w pionie zamiast zostawiać przyklejoną do
+   góry z pustką pod spodem. Degraduje się bezpiecznie: gdy treść i tak przelewa się poza
+   panel (duży skan, wiele rzędów płytek), auto-marginesy po prostu znikają i scroll startuje
+   od góry jak zawsze. */
+.b-scroll > .b-range:only-child { margin-top: auto; margin-bottom: auto; }
 .b-range:only-child { margin-block: auto; }
 .b-range:only-child .b-range-head { margin-bottom: 18px; }
 .b-range + .b-range { margin-top: var(--s-4); padding-top: var(--s-4); border-top: 1px dashed var(--line); }
@@ -193,48 +199,29 @@ code, .mono { font-family: var(--font-mono); font-variant-numeric: tabular-nums;
 .tile-label { font-size: var(--fs-11); color: var(--ink-3); padding: 2px 3px; line-height: 1; }
 .tile.has-change .tile-label { color: var(--ink-2); }
 
-.bands { display: flex; flex-wrap: wrap; align-items: flex-end; gap: 12px 28px; padding-top: 26px; }
-.band { display: flex; flex-direction: column; gap: 2px; min-width: 0; max-width: 100%; }
-.band-ports { order: 1; }
-.band-host { order: 2; }
-.band-host {
-  display: grid; grid-template-columns: 10px 1fr; column-gap: 8px; align-items: center; text-align: left;
-  background: none; border: 1px solid transparent; padding: 4px 8px; align-self: flex-start;
+.host-dot {
+  position: absolute; width: 5px; height: 5px; padding: 0; margin: 0;
+  background: transparent; border: 0; border-radius: 50%; cursor: pointer;
 }
-.band-host small { grid-column: 2; color: var(--ink-3); font-family: var(--font-mono); font-size: var(--fs-11); }
-.band-host:hover { border-color: var(--line-2); }
-.band-host.is-active { border: 2px solid var(--ink); }
-.band-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--dot-live); }
-.band-dot.st-changed, .band-dot.st-new, .band-dot.st-flapping { background: var(--change); }
-.band-dot.st-removed, .band-dot.st-gone { background: transparent; border: 1px solid var(--change); }
-.band-ports {
-  list-style: none; margin: 0; padding: 0 0 0; display: flex; gap: 2px; flex-wrap: wrap; position: relative;
-  background-image: radial-gradient(circle, var(--dot) 1px, transparent 1.3px); background-size: 6px 6px;
-  background-position: 0 -2px; min-height: 64px; align-items: flex-end;
-}
-.port {
-  position: relative; display: grid; grid-template-rows: 1fr 10px auto auto; justify-items: center; align-items: end;
-  width: 68px; height: 124px; padding: 0 2px 4px; background: transparent; border: 1px solid transparent;
-  transition: border-color 150ms var(--ease), background 150ms var(--ease);
-}
-.port:hover { border-color: var(--line-2); background: color-mix(in srgb, var(--bg) 70%, transparent); }
-.port.is-active { border: 2px solid var(--ink); }
-.port-spike {
-  width: 1.5px; height: 0; align-self: end; margin-bottom: 2px;
-  background: linear-gradient(to top, var(--change), transparent);
-  transition: height 650ms var(--ease);
-}
-.port.st-new .port-spike, .port.st-changed .port-spike, .port.st-flapping .port-spike, .port.st-removed .port-spike { height: 40px; }
-.port.is-crit .port-spike { height: 64px; width: 2px; background: linear-gradient(to top, var(--crit), transparent); }
-.port-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--dot-live); }
-.port.st-new .port-dot { background: var(--change); width: 10px; height: 10px; }
-.port.st-changed .port-dot { background: var(--change); border-radius: 0; transform: rotate(45deg); }
-.port.st-flapping .port-dot { background: linear-gradient(90deg, var(--change) 50%, transparent 50%); border: 1px solid var(--change); }
-.port.st-removed .port-dot, .port.st-gone .port-dot { background: transparent; border: 1.5px solid var(--change); }
-.port.is-crit .port-dot { background: var(--crit); border-color: var(--crit); }
-.port-num { font-size: var(--fs-13); margin-top: 6px; }
-.port.st-removed .port-num { text-decoration: line-through; text-decoration-color: var(--change); color: var(--ink-3); }
-.port-svc { font-size: var(--fs-11); color: var(--ink-3); max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.host-dot:hover, .host-dot:focus-visible { outline: 1px solid var(--ink); outline-offset: 1.5px; }
+.host-dot.is-active { outline: 2px solid var(--ink); outline-offset: 1.5px; }
+
+/* Graf host<->port (mała skala, ≤16 hostów) - węzły SVG pozycjonowane przez fizykę w JS
+   (zob. GraphView w AddressMap.jsx), tu tylko wygląd i kolory stanu/severity. */
+.graph-wrap { width: 100%; padding-top: 8px; }
+.graph-svg { display: block; width: 100%; touch-action: none; }
+.graph-link { stroke: var(--line-2); stroke-width: 1; }
+.graph-node circle { fill: var(--dot-live); stroke: var(--bg); stroke-width: 1.5; cursor: grab; }
+.graph-node:active circle, .graph-node:focus-visible circle { cursor: grabbing; }
+.graph-node:focus-visible circle { outline: 2px solid var(--ink); outline-offset: 2px; }
+.graph-node.is-active circle { stroke: var(--ink); stroke-width: 2.5; }
+.graph-node.st-new circle, .graph-node.st-changed circle, .graph-node.st-flapping circle { fill: var(--change); }
+.graph-node.st-removed circle, .graph-node.st-gone circle { fill: var(--bg); stroke: var(--change); }
+.graph-node.is-crit circle { fill: var(--crit); }
+.graph-node.graph-host circle { fill: var(--ink); }
+.graph-node.graph-host.st-new circle, .graph-node.graph-host.st-changed circle, .graph-node.graph-host.st-flapping circle { fill: var(--change); }
+.graph-node.graph-host.is-crit circle { fill: var(--crit); }
+.graph-label { font-size: var(--fs-11); fill: var(--ink-3); text-anchor: middle; pointer-events: none; user-select: none; }
 
 .legend { list-style: none; display: flex; flex-wrap: wrap; gap: 6px 16px; margin: 8px 0 0; padding: 8px 0 0; border-top: 1px solid var(--line); font-size: var(--fs-11); color: var(--ink-3); }
 .legend li { display: inline-flex; align-items: center; gap: 6px; }
@@ -422,4 +409,3 @@ kbd { font: 500 var(--fs-11) var(--font-mono); border: 1px solid var(--line-2); 
 /* zakresy bez zmian: jedna linia na zakres, bez pustego pola kropek */
 .b-quiet ul { list-style: none; margin: 0; padding: 0; display: grid; gap: 4px; }
 .b-quiet li { display: flex; justify-content: space-between; gap: 12px; font-size: var(--fs-11); color: var(--ink-2); }
-.band-ports:empty { min-height: 0; background: none; }

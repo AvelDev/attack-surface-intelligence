@@ -209,7 +209,13 @@ class Ctx:
             self._conn.commit()
 
     def check_time_limit(self):
-        row = self._conn.execute("SELECT stop_requested FROM scans WHERE id=?", (self.id,)).fetchone()
+        # Inaczej niż asset/edge/finding/hosts_* - to jedyna metoda Ctx wołana też z wątków
+        # roboczych ThreadPoolExecutora (zob. _host_alive w retry_silent_hosts), więc NIE może
+        # użyć self._conn (stworzonego w wątku pipeline'u - sqlite3 bez check_same_thread=False
+        # wywala "objects created in a thread can only be used in that same thread"). db.conn()
+        # otwiera świeże połączenie, bezpieczne z dowolnego wątku - ten sam wzorzec co log()/stage().
+        with db.conn() as c:
+            row = c.execute("SELECT stop_requested FROM scans WHERE id=?", (self.id,)).fetchone()
         if row and row["stop_requested"]:
             raise ScanStopped("Skan zatrzymany ręcznie przez operatora")
         limit_m = self.opts.get("time_window_mins")
@@ -246,10 +252,12 @@ class Ctx:
     def finish(self, status):
         sev = [r["severity"] for r in self._conn.execute(
             "SELECT severity FROM findings WHERE scan_id=?", (self.id,))]
+        hosts = self._conn.execute(
+            "SELECT COUNT(*) AS n FROM assets WHERE scan_id=? AND kind='ip'", (self.id,)).fetchone()["n"]
         stage_txt = {"done": "zakończony", "paused_window": "okno czasowe (wstrzymany)",
                      "stopped": "zatrzymany ręcznie"}.get(status, "błąd")
         self._conn.execute("UPDATE scans SET status=?, stage=?, score=?, finished=?, duration_s=? WHERE id=?",
-                           (status, stage_txt, risk_score(sev), time.time(), time.time() - self.created, self.id))
+                           (status, stage_txt, risk_score(sev, hosts), time.time(), time.time() - self.created, self.id))
         self._conn.commit()
         if status != "paused_window":
             # Jedyny status, dla którego checkpoint ma dalej służyć - w każdym innym (done/
@@ -281,10 +289,22 @@ class ScanStopped(Exception):
     """Operator zażądał zatrzymania skanu (POST /api/scans/{id}/stop)."""
 
 
-def risk_score(severities):
-    """0-100, malejące przyrosty: kilka krytycznych szybko wyciąga wynik w górę."""
-    total = sum(SEV_W.get(s, 0) for s in severities)
-    return min(100, int(100 * (1 - 0.985 ** total)))
+def risk_score(severities, host_count=None):
+    """0-100, malejące przyrosty. Suma wag BEZ normalizacji nasycała się do 100 przy każdym
+    większym skanie niezależnie od realnej wagi problemów - 182 findingów "medium" + 794 "low"
+    rozsianych po 254 hostach /24 (żadnego critical/high) dawało sumę wag 3838, a już ~305
+    wystarcza, by (1 - 0.985**x) praktycznie dotknęło 1.0 - wynik zawsze pokazywał 100, choć
+    sieć nie miała ANI JEDNEGO poważnego ustalenia. Teraz liczymy dwa sygnały: `worst`
+    (najcięższe pojedyncze ustalenie - jeden critical w ogromnej sieci wciąż ma znaczenie) i
+    `density` (suma wag podzielona przez liczbę hostów - gęstość ryzyka NA HOST, więc sam
+    rozmiar sieci przy drobnych findingach już nie nasyca wyniku). Bez `host_count` (import
+    CSV bez grafu zasobów, gdzie liczby hostów nie znamy) - stare zachowanie, surowa suma."""
+    if not severities:
+        return 0
+    weights = [SEV_W.get(s, 0) for s in severities]
+    worst = max(weights)
+    density = sum(weights) / max(1, host_count) if host_count else sum(weights)
+    return min(100, int(100 * (1 - 0.985 ** (worst + density))))
 
 
 def run_cmd(ctx, cmd, timeout, stdin=None):

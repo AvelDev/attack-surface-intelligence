@@ -308,7 +308,7 @@ function Assets({ assets }) {
 }
 
 function Diff({ diff, running }) {
-  const { t, n } = useI18n();
+  const { t, tf, n } = useI18n();
   if (!diff) return <p className="q-empty">{running ? t("s.diffRunning") : t("s.diffNone")}</p>;
   const groups = [
     ["new", diff.new_assets],
@@ -338,7 +338,7 @@ function Diff({ diff, running }) {
           <section key={`f-${k}`} className="diff-g" aria-labelledby={`dgf-${k}`}>
             <h3 id={`dgf-${k}`}><KindIcon kind={k === "new" ? "finding" : "removed"} size={14} /> {label} <span className="mono quiet">{n(items.length)}</span></h3>
             {items.length ? (
-              <ul>{items.slice(0, 200).map((x) => <li key={x.asset + x.title}><span>{x.title}</span> <code>{x.asset}</code></li>)}</ul>
+              <ul>{items.slice(0, 200).map((x) => <li key={x.asset + x.title}><span>{tf(x.title)}</span> <code>{x.asset}</code></li>)}</ul>
             ) : <p className="quiet">{t("s.diffEmpty")}</p>}
           </section>
         ))}

@@ -8,7 +8,7 @@ const FP = "[False Positive] ";
 
 /** Tabela ustaleń z filtrem wagi i wyszukiwaniem; wspólna dla widoku skanu i ekranu znalezisk. */
 export function FindingsTable({ findings, canEdit, onEdit }) {
-  const { t, n } = useI18n();
+  const { t, tf, n } = useI18n();
   const [sev, setSev] = useState("all");
   const [q, setQ] = useState("");
   const counts = useMemo(() => {
@@ -63,16 +63,16 @@ export function FindingsTable({ findings, canEdit, onEdit }) {
                   <tr key={f.rowid} className={fp ? "is-fp" : ""}>
                     <td className="nowrap"><Sev level={f.severity} /></td>
                     <th scope="row" className="f-title">
-                      <span>{fp ? f.title.slice(FP.length) : f.title}</span>
+                      <span>{tf(fp ? f.title.slice(FP.length) : f.title)}</span>
                       {fp && <span className="chip">{t("st.false_positive")}</span>}
                       {f.detail && <small>{f.detail}</small>}
                     </th>
                     <td className="mono f-asset">{f.asset}</td>
-                    <td className="f-fix">{f.fix || <span className="quiet">—</span>}</td>
+                    <td className="f-fix">{f.fix ? tf(f.fix) : <span className="quiet">—</span>}</td>
                     <td><span className="chip mono">{f.source}</span></td>
                     {canEdit && (
                       <td className="d-act">
-                        <button type="button" className="icon-btn" onClick={() => onEdit(f)} aria-label={t("f.editOf", { title: f.title })} title={t("f.edit")}>
+                        <button type="button" className="icon-btn" onClick={() => onEdit(f)} aria-label={t("f.editOf", { title: tf(f.title) })} title={t("f.edit")}>
                           <Pencil size={14} aria-hidden="true" />
                         </button>
                       </td>
@@ -90,7 +90,7 @@ export function FindingsTable({ findings, canEdit, onEdit }) {
 
 /** Edycja ustalenia (pkt 14): waga, zalecenie, fałszywy alarm, trwałość decyzji między skanami. */
 export function FindingDialog({ finding, onClose, onSaved, onAuthLost, flash }) {
-  const { t } = useI18n();
+  const { t, tf } = useI18n();
   const fpNow = finding.title.startsWith(FP);
   const [sev, setSev] = useState(finding.severity);
   const [fix, setFix] = useState(finding.fix || "");
@@ -124,7 +124,7 @@ export function FindingDialog({ finding, onClose, onSaved, onAuthLost, flash }) 
             }>
       <form id="fd-form" className="form-grid" onSubmit={save}>
         <p className="dlg-subject span-2">
-          <span>{fpNow ? finding.title.slice(FP.length) : finding.title}</span>
+          <span>{tf(fpNow ? finding.title.slice(FP.length) : finding.title)}</span>
           <code>{finding.asset}</code>
         </p>
         <Field label={t("f.sev")} className="span-2">

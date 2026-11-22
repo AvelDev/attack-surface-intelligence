@@ -46,6 +46,7 @@ const pl = {
   "b.sub": "{hosts} hostów · {services} usług",
   "b.tileLabel": "{prefix}: {alive} hostów, {changes} zmian",
   "b.hostLabel": "{ip}: {services} usług, {changes} zmian",
+  "b.graphLabel": "Graf połączeń host-port, węzły można przeciągać",
   "b.portLabel": "port {port}: {label}",
   "b.legend.live": "host żywy",
   "b.legend.empty": "adres bez odpowiedzi",
@@ -175,6 +176,7 @@ const pl = {
   "nav.settings": "Integracje i narzędzia",
   "nav.skip": "Przejdź do treści",
   "ui.cancel": "Anuluj",
+  "ui.close": "Zamknij",
   "ui.save": "Zapisz",
   "ui.delete": "Usuń",
   "ui.optional": "opcjonalnie",
@@ -190,6 +192,14 @@ const pl = {
   "ns.title": "Nowy zakres",
   "ns.targets": "Cele",
   "ns.targetsHint": "Adresy IP, zakresy CIDR i domeny, po jednym w linii albo po przecinku. Zakresy powyżej 10 000 adresów są dzielone na paczki.",
+  "ns.help": "Jak dodawać cele?",
+  "ns.helpTitle": "Jak dodawać cele",
+  "ns.helpIp": "Jeden konkretny host - skanujemy tylko ten adres.",
+  "ns.helpDomain": "Nazwa domeny - sami odnajdziemy jej subdomeny i adresy IP, pod którymi stoją.",
+  "ns.helpCidr": "Cały zakres sieci (CIDR) - skanujemy każdy adres w zakresie, np. /24 to 254 hosty, /20 to 4094.",
+  "ns.helpMulti": "Można podać wiele celów naraz - każdy w nowej linii albo oddzielony przecinkiem; różne typy (hosty, domeny, zakresy) można mieszać w jednym polu.",
+  "ns.helpImport": "Masz już listę w pliku? Użyj przycisku „Import z pliku CSV/JSON” w stopce - CSV z kolumną „target” (albo „host”) lub JSON z listą adresów, jeden wpis = jeden cel.",
+  "ns.helpLimit": "Duże zakresy dzielimy automatycznie na paczki po kilkaset adresów, żeby skan szedł stabilnie. Twardy limit to 20 000 celów na jeden przebieg.",
   "ns.rate": "Tempo",
   "ns.rate100": "Dyskretne · 100 pakietów/s",
   "ns.rate300": "Normalne · 300 pakietów/s",
@@ -439,6 +449,7 @@ const en = {
   "b.sub": "{hosts} hosts · {services} services",
   "b.tileLabel": "{prefix}: {alive} hosts, {changes} changes",
   "b.hostLabel": "{ip}: {services} services, {changes} changes",
+  "b.graphLabel": "Host-port connection graph, nodes can be dragged",
   "b.portLabel": "port {port}: {label}",
   "b.legend.live": "live host",
   "b.legend.empty": "no response",
@@ -568,6 +579,7 @@ const en = {
   "nav.settings": "Integrations and tools",
   "nav.skip": "Skip to content",
   "ui.cancel": "Cancel",
+  "ui.close": "Close",
   "ui.save": "Save",
   "ui.delete": "Delete",
   "ui.optional": "optional",
@@ -583,6 +595,14 @@ const en = {
   "ns.title": "New range",
   "ns.targets": "Targets",
   "ns.targetsHint": "IP addresses, CIDR ranges and domains, one per line or comma-separated. Ranges over 10,000 addresses are split into batches.",
+  "ns.help": "How do I add targets?",
+  "ns.helpTitle": "How to add targets",
+  "ns.helpIp": "A single host - only that address is scanned.",
+  "ns.helpDomain": "A domain name - we find its subdomains and the IP addresses behind them for you.",
+  "ns.helpCidr": "A whole network range (CIDR) - every address in the range is scanned, e.g. a /24 is 254 hosts, a /20 is 4094.",
+  "ns.helpMulti": "You can list several targets at once - one per line or comma-separated; different kinds (hosts, domains, ranges) can be mixed in the same field.",
+  "ns.helpImport": "Already have a list in a file? Use the \"Import from CSV/JSON\" button in the footer - a CSV with a \"target\" (or \"host\") column, or a JSON array of addresses, one entry per target.",
+  "ns.helpLimit": "Large ranges are automatically split into batches of a few hundred addresses so the scan stays stable. The hard limit is 20,000 targets per run.",
   "ns.rate": "Rate",
   "ns.rate100": "Quiet · 100 packets/s",
   "ns.rate300": "Normal · 300 packets/s",
@@ -786,6 +806,68 @@ const en = {
   "u.desc.admin": "Full access, including accounts and integrations.",
 };
 
+// Tytuły/zalecenia ustaleń źródła "builtin" (RISKY/SEC_HEADERS/ctx.finding w asi/scanner.py)
+// to treść WYNIKU skanu, nie UI - przełącznik języka tłumaczy tylko chrom interfejsu, więc
+// bez tej tabeli zostawałyby po polsku nawet w angielskim UI (stąd zgłoszenie: "finding i
+// remediation się nie tłumaczą"). Zamknięty, wyliczalny zestaw dokładnie tych stringów.
+// Celowo NIE obejmuje źródeł "nuclei" (szablony już są po angielsku) ani "signature"
+// (treść pisze administrator w dowolnym języku - nie nasza do tłumaczenia).
+const FINDING_EN = {
+  "Telnet wystawiony do internetu": "Telnet exposed to the internet",
+  "Wyłącz Telnet, użyj SSH z kluczami.": "Disable Telnet; use SSH with keys instead.",
+  "FTP wystawiony do internetu": "FTP exposed to the internet",
+  "Zastąp FTP przez SFTP/FTPS lub zamknij port.": "Replace FTP with SFTP/FTPS, or close the port.",
+  "SMB wystawiony do internetu": "SMB exposed to the internet",
+  "Zablokuj 445 na firewallu; udostępniaj przez VPN.": "Block port 445 at the firewall; share only over VPN.",
+  "MS-RPC wystawiony do internetu": "MS-RPC exposed to the internet",
+  "NetBIOS wystawiony do internetu": "NetBIOS exposed to the internet",
+  "Zablokuj port na brzegu sieci.": "Block the port at the network edge.",
+  "rpcbind wystawiony do internetu": "rpcbind exposed to the internet",
+  "Zamknij port lub ogranicz ACL.": "Close the port or restrict it with an ACL.",
+  "RDP wystawiony do internetu": "RDP exposed to the internet",
+  "Ukryj RDP za VPN/bastionem, włącz NLA i MFA.": "Put RDP behind a VPN/bastion host, and enable NLA and MFA.",
+  "VNC wystawiony do internetu": "VNC exposed to the internet",
+  "Zamknij port, użyj tunelu SSH/VPN.": "Close the port; use an SSH/VPN tunnel instead.",
+  "Baza MySQL dostępna z internetu": "MySQL database reachable from the internet",
+  "Baza PostgreSQL dostępna z internetu": "PostgreSQL database reachable from the internet",
+  "Baza MSSQL dostępna z internetu": "MSSQL database reachable from the internet",
+  "Ogranicz dostęp do sieci aplikacji (firewall).": "Restrict access to the application network (firewall).",
+  "Redis dostępny z internetu": "Redis reachable from the internet",
+  "Zamknij port, włącz auth i bind do localhost.": "Close the port; enable auth and bind to localhost.",
+  "MongoDB dostępna z internetu": "MongoDB reachable from the internet",
+  "Zamknij port, włącz uwierzytelnianie.": "Close the port; enable authentication.",
+  "Elasticsearch dostępny z internetu": "Elasticsearch reachable from the internet",
+  "Zamknij port, włącz security i ACL.": "Close the port; enable security and ACLs.",
+  "PPTP VPN (przestarzały protokół)": "PPTP VPN (deprecated protocol)",
+  "Migruj na WireGuard/IPsec.": "Migrate to WireGuard/IPsec.",
+  "Brak nagłówka Content-Security-Policy": "Missing Content-Security-Policy header",
+  "Dodaj CSP ograniczające źródła skryptów.": "Add a CSP that restricts script sources.",
+  "Brak nagłówka X-Content-Type-Options": "Missing X-Content-Type-Options header",
+  "Dodaj 'X-Content-Type-Options: nosniff'.": "Add 'X-Content-Type-Options: nosniff'.",
+  "Brak ochrony przed clickjackingiem (X-Frame-Options)": "No clickjacking protection (X-Frame-Options)",
+  "Dodaj X-Frame-Options lub CSP frame-ancestors.": "Add X-Frame-Options or a CSP frame-ancestors directive.",
+  "Możliwy subdomain takeover (CNAME do usługi zewnętrznej bez celu)":
+    "Possible subdomain takeover (CNAME to an external service with no target)",
+  "Usuń wpis CNAME albo odzyskaj zasób u dostawcy; sprawdź szablony nuclei 'takeovers'.":
+    "Remove the CNAME record or reclaim the resource with the provider; check nuclei's 'takeovers' templates.",
+  "Subdomena nie rozwiązuje się w DNS (możliwy dangling record)":
+    "Subdomain does not resolve in DNS (possible dangling record)",
+  "Usuń nieużywany wpis DNS lub zweryfikuj podatność na subdomain takeover.":
+    "Remove the unused DNS record or check it for subdomain-takeover risk.",
+  "Usługa dostępna po nieszyfrowanym HTTP bez przekierowania": "Service reachable over unencrypted HTTP with no redirect",
+  "Wymuś przekierowanie 301 na HTTPS i włącz HSTS.": "Force a 301 redirect to HTTPS and enable HSTS.",
+  "Certyfikat TLS wygasł": "TLS certificate has expired",
+  "Certyfikat TLS wkrótce wygasa": "TLS certificate expires soon",
+  "Niepoprawny certyfikat TLS": "Invalid TLS certificate",
+  "Odnów/napraw certyfikat (np. Let's Encrypt + automatyzacja).": "Renew/fix the certificate (e.g. Let's Encrypt with automation).",
+  "Brak nagłówka HSTS": "Missing HSTS header",
+  "Dodaj Strict-Transport-Security.": "Add Strict-Transport-Security.",
+  "Ujawnienie wersji oprogramowania w nagłówku Server": "Software version disclosed in the Server header",
+  "Ukryj wersję (server_tokens off / ServerTokens Prod).": "Hide the version (server_tokens off / ServerTokens Prod).",
+  "Potencjalny panel administracyjny/logowania dostępny publicznie": "Potential admin/login panel exposed publicly",
+  "Ogranicz dostęp (VPN, allowlista IP, MFA).": "Restrict access (VPN, IP allowlist, MFA).",
+};
+
 const DICTS = { pl, en };
 const Ctx = createContext(null);
 
@@ -835,7 +917,10 @@ export function I18nProvider({ children }) {
       if (m) return `${m} min`;
       return `${s} s`;
     };
-    return { lang, setLang, t, n, date, day, ago, dur };
+    // Dla treści ustaleń typu "builtin" (zob. FINDING_EN) - inne źródła (nuclei/signature)
+    // wraca bez zmian, bo nie są naszym tekstem do tłumaczenia.
+    const tf = (text) => (lang === "en" ? FINDING_EN[text] || text : text);
+    return { lang, setLang, t, tf, n, date, day, ago, dur };
   }, [lang, setLang]);
   return <Ctx.Provider value={value}>{children}</Ctx.Provider>;
 }

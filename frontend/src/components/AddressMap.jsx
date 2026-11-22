@@ -57,7 +57,7 @@ export default function AddressMap({ data, focused, scan, onScan, filter, onFilt
                 </span>
               </header>
               {isDetail(m) ? (
-                <PortBands blocks={m.blocks} filter={filter} onFilter={onFilter} />
+                <GraphView blocks={m.blocks} filter={filter} onFilter={onFilter} />
               ) : (
                 <Tiles blocks={m.blocks} filter={filter} onFilter={onFilter} />
               )}
@@ -119,7 +119,12 @@ function Tiles({ blocks, filter, onFilter }) {
   const cols = Math.max(1, Math.floor((width + GAP_X) / (TILE + GAP_X)));
   const rows = Math.ceil(blocks.length / cols);
   const height = rows * (LABEL_H + TILE + GAP_Y);
-  const pos = (i) => ({ x: (i % cols) * (TILE + GAP_X), y: Math.floor(i / cols) * (LABEL_H + TILE + GAP_Y) + LABEL_H });
+  // Mniej płytek niż mieści się w jednym rzędzie (typowo pojedynczy /24) - wyśrodkuj ten
+  // rząd, zamiast zostawiać go przyklejonego do lewej krawędzi ogromnego, pustego panelu.
+  // Przy pełnej siatce (więcej rzędów) offsetX=0 - zwykłe wyrównanie do lewej, jak dotąd.
+  const usedCols = Math.min(cols, blocks.length);
+  const offsetX = blocks.length <= cols ? Math.max(0, (width - (usedCols * TILE + (usedCols - 1) * GAP_X)) / 2) : 0;
+  const pos = (i) => ({ x: offsetX + (i % cols) * (TILE + GAP_X), y: Math.floor(i / cols) * (LABEL_H + TILE + GAP_Y) + LABEL_H });
 
   // iglice rosną przy każdej nowej porcji danych (jedyny autorski ruch na ekranie)
   const sig = useMemo(() => blocks.map((b) => b.prefix + b.hosts.reduce((s, h) => s + h.changes, 0)).join("|"), [blocks]);
@@ -205,6 +210,27 @@ function Tiles({ blocks, filter, onFilter }) {
             </button>
           );
         })}
+      {width > 0 &&
+        blocks.map((b, i) => {
+          const { x, y } = pos(i);
+          return b.hosts.map((h) => {
+            const active = filter?.type === "host" && filter.value === h.ip;
+            const label = t("b.hostLabel", { ip: h.ip, services: h.services, changes: h.changes })
+              + (h.state ? ` · ${t(`k.${h.state}`)}` : "");
+            return (
+              <button
+                key={h.ip}
+                type="button"
+                className={`host-dot${active ? " is-active" : ""}`}
+                style={{ left: x + (h.octet % 16) * PITCH, top: y + Math.floor(h.octet / 16) * PITCH }}
+                title={label}
+                aria-pressed={active}
+                aria-label={label}
+                onClick={() => onFilter(active ? null : { type: "host", value: h.ip, label: h.ip })}
+              />
+            );
+          });
+        })}
     </div>
   );
 }
@@ -235,55 +261,223 @@ function drawHost(ctx, pal, h, cx, cy) {
   }
 }
 
-/* ---------- mała skala (≤16 hostów, np. lab): każdy host to pasmo portów ---------- */
+/* ---------- mała skala (≤16 hostów, np. lab): graf powiązań host <-> port, węzły do
+   przeciągania - fizyka (odpychanie + sprężyny wzdłuż krawędzi) liczona w rAF i wpisywana
+   bezpośrednio w atrybuty SVG przez refy, żeby nie przerysowywać Reacta 60 razy/s. ---------- */
 
-function PortBands({ blocks, filter, onFilter }) {
+const GRAPH_H = 420;
+const HOST_R = 10, PORT_R = 6.5;
+const DRAG_CLICK_PX = 5; // poniżej tego ruchu puszczenie liczy się jako klik, nie przeciągnięcie
+
+function buildGraph(hosts) {
+  const nodes = [];
+  const links = [];
+  const cx = 0, cy = 0;
+  hosts.forEach((h, hi) => {
+    const a = (hi / Math.max(1, hosts.length)) * Math.PI * 2;
+    const hr = 60 + 40 * Math.min(3, Math.floor(hosts.length / 6));
+    const hx = cx + Math.cos(a) * hr, hy = cy + Math.sin(a) * hr;
+    nodes.push({ id: `h:${h.ip}`, kind: "host", host: h, x: hx, y: hy, vx: 0, vy: 0 });
+    (h.ports || []).forEach((p, pi) => {
+      const pcount = (h.ports || []).length;
+      const pa = a + ((pi - (pcount - 1) / 2) / Math.max(1, pcount)) * 1.4;
+      const pr = hr + 46;
+      nodes.push({
+        id: `p:${h.ip}:${p.port}`, kind: "port", host: h, port: p,
+        x: cx + Math.cos(pa) * pr, y: cy + Math.sin(pa) * pr, vx: 0, vy: 0,
+      });
+      links.push({ a: `h:${h.ip}`, b: `p:${h.ip}:${p.port}` });
+    });
+  });
+  return { nodes, links };
+}
+
+function GraphView({ blocks, filter, onFilter }) {
   const { t } = useI18n();
-  const hosts = blocks.flatMap((b) => b.hosts);
+  const hosts = useMemo(() => blocks.flatMap((b) => b.hosts), [blocks]);
+  const wrap = useRef(null);
+  const svgRef = useRef(null);
+  const [width, setWidth] = useState(0);
+  const nodeRefs = useRef(new Map());
+  const linkRefs = useRef(new Map());
+
+  const sig = useMemo(() => hosts.map((h) => h.ip + ":" + (h.ports || []).map((p) => p.port).join(",")).join("|"), [hosts]);
+  const graph = useMemo(() => buildGraph(hosts), [sig]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  useLayoutEffect(() => {
+    const el = wrap.current;
+    const ro = new ResizeObserver(([e]) => setWidth(Math.floor(e.contentRect.width)));
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, []);
+
+  useEffect(() => {
+    if (!width) return;
+    const { nodes, links } = graph;
+    const byId = new Map(nodes.map((n) => [n.id, n]));
+    const cx = width / 2, cy = GRAPH_H / 2;
+    // Przesunięcie startowe tylko RAZ dla danego obiektu grafu (nie przy każdym przebiegu
+    // efektu) - inaczej zmiana szerokości okna (sama w sobie nie buduje nowego grafu, bo
+    // zależność efektu to [graph, width, themeTick]) dokładałaby cx/cy po raz kolejny i węzły
+    // uciekałyby w nieskończoność przy każdym resize.
+    if (!graph._centered) {
+      nodes.forEach((n) => { n.x += cx; n.y += cy; });
+      graph._centered = true;
+    }
+    let raf = 0;
+    let dragging = null; // { node, pointerId, moved }
+
+    const tick = () => {
+      // odpychanie (O(n²), bezpieczne przy skali tego widoku - ≤16 hostów + ich porty)
+      for (let i = 0; i < nodes.length; i++) {
+        for (let j = i + 1; j < nodes.length; j++) {
+          const a = nodes[i], b = nodes[j];
+          let dx = a.x - b.x, dy = a.y - b.y;
+          let d2 = dx * dx + dy * dy || 0.01;
+          if (d2 > 220 * 220) continue;
+          const d = Math.sqrt(d2);
+          const f = 900 / d2;
+          dx /= d; dy /= d;
+          if (a !== dragging?.node) { a.vx += dx * f; a.vy += dy * f; }
+          if (b !== dragging?.node) { b.vx -= dx * f; b.vy -= dy * f; }
+        }
+      }
+      // sprężyny wzdłuż krawędzi host<->port
+      links.forEach((l) => {
+        const a = byId.get(l.a), b = byId.get(l.b);
+        if (!a || !b) return;
+        const dx = b.x - a.x, dy = b.y - a.y;
+        const d = Math.sqrt(dx * dx + dy * dy) || 0.01;
+        const rest = 70, k = 0.02;
+        const f = (d - rest) * k;
+        const ux = dx / d, uy = dy / d;
+        if (a !== dragging?.node) { a.vx += ux * f; a.vy += uy * f; }
+        if (b !== dragging?.node) { b.vx -= ux * f; b.vy -= uy * f; }
+      });
+      // delikatne dociąganie do środka, żeby graf nie odpłynął poza widok
+      nodes.forEach((n) => {
+        if (n === dragging?.node) return;
+        n.vx += (cx - n.x) * 0.0015;
+        n.vy += (cy - n.y) * 0.0015;
+        n.vx *= 0.82; n.vy *= 0.82;
+        n.x += n.vx; n.y += n.vy;
+      });
+      nodes.forEach((n) => {
+        const el = nodeRefs.current.get(n.id);
+        if (el) el.setAttribute("transform", `translate(${n.x},${n.y})`);
+      });
+      links.forEach((l) => {
+        const a = byId.get(l.a), b = byId.get(l.b);
+        const el = linkRefs.current.get(l.a + "|" + l.b);
+        if (el && a && b) { el.setAttribute("x1", a.x); el.setAttribute("y1", a.y); el.setAttribute("x2", b.x); el.setAttribute("y2", b.y); }
+      });
+      raf = requestAnimationFrame(tick);
+    };
+
+    if (reduced()) {
+      nodes.forEach((n) => { const el = nodeRefs.current.get(n.id); if (el) el.setAttribute("transform", `translate(${n.x},${n.y})`); });
+      links.forEach((l) => {
+        const a = byId.get(l.a), b = byId.get(l.b);
+        const el = linkRefs.current.get(l.a + "|" + l.b);
+        if (el && a && b) { el.setAttribute("x1", a.x); el.setAttribute("y1", a.y); el.setAttribute("x2", b.x); el.setAttribute("y2", b.y); }
+      });
+    } else {
+      raf = requestAnimationFrame(tick);
+    }
+
+    const toSvgPoint = (e) => {
+      const pt = svgRef.current.createSVGPoint();
+      pt.x = e.clientX; pt.y = e.clientY;
+      const m = svgRef.current.getScreenCTM().inverse();
+      const p = pt.matrixTransform(m);
+      return { x: p.x, y: p.y };
+    };
+    const onMove = (e) => {
+      if (!dragging || dragging.pointerId !== e.pointerId) return;
+      const p = toSvgPoint(e);
+      dragging.node.x = p.x; dragging.node.y = p.y;
+      dragging.node.vx = 0; dragging.node.vy = 0;
+      if (Math.hypot(p.x - dragging.start.x, p.y - dragging.start.y) > DRAG_CLICK_PX) dragging.moved = true;
+      const el = nodeRefs.current.get(dragging.node.id);
+      if (el) el.setAttribute("transform", `translate(${p.x},${p.y})`);
+    };
+    const onUp = (e) => {
+      if (!dragging || dragging.pointerId !== e.pointerId) return;
+      const wasClick = !dragging.moved;
+      const n = dragging.node;
+      dragging = null;
+      if (wasClick) n.onActivate?.();
+    };
+    window.addEventListener("pointermove", onMove);
+    window.addEventListener("pointerup", onUp);
+    svgRef.current._startDrag = (node, e) => {
+      dragging = { node, pointerId: e.pointerId, start: toSvgPoint(e), moved: false };
+    };
+
+    return () => {
+      cancelAnimationFrame(raf);
+      window.removeEventListener("pointermove", onMove);
+      window.removeEventListener("pointerup", onUp);
+    };
+  }, [graph, width]);
+
+  const activate = (id, fn) => {
+    const n = graph.nodes.find((x) => x.id === id);
+    if (n) n.onActivate = fn;
+  };
+
   return (
-    <div className="bands">
-      {hosts.map((h) => {
-        const hostActive = filter?.type === "host" && filter.value === h.ip;
-        return (
-          <div className="band" key={h.ip}>
-            <button
-              type="button"
-              className={`band-host${hostActive ? " is-active" : ""}`}
-              aria-pressed={hostActive}
-              aria-label={t("b.hostLabel", { ip: h.ip, services: h.services, changes: h.changes })}
-              onClick={() => onFilter(hostActive ? null : { type: "host", value: h.ip, label: h.ip })}
-            >
-              <span className={`band-dot st-${h.state || (h.alive ? "live" : "gone")}`} aria-hidden="true" />
-              <span className="mono">{h.ip}</span>
-              <small>{h.services} · {h.changes}</small>
-            </button>
-            <ol className="band-ports">
-              {(h.ports || []).map((p) => {
-                const crit = p.severity === "critical";
-                const st = p.state || (p.alive ? "live" : "gone");
-                const active = filter?.type === "asset" && filter.value === p.asset;
-                return (
-                  <li key={p.port}>
-                    <button
-                      type="button"
-                      className={`port st-${st}${crit ? " is-crit" : ""}${active ? " is-active" : ""}`}
-                      aria-pressed={active}
-                      aria-label={t("b.portLabel", { port: p.port, label: p.label }) + (p.state ? ` · ${t(`k.${p.state}`)}` : "")}
-                      title={`${p.port} · ${p.label}`}
-                      onClick={() => onFilter(active ? null : { type: "asset", value: p.asset, port: `${h.ip}:${p.port}`, label: `${h.ip}:${p.port}` })}
-                    >
-                      <span className="port-spike" aria-hidden="true" />
-                      <span className="port-dot" aria-hidden="true" />
-                      <span className="port-num mono">{p.port}</span>
-                      <span className="port-svc">{shortLabel(p.label)}</span>
-                    </button>
-                  </li>
-                );
-              })}
-            </ol>
-          </div>
-        );
-      })}
+    <div className="graph-wrap" ref={wrap}>
+      <svg ref={svgRef} className="graph-svg" width={width || 1} height={GRAPH_H} role="group" aria-label={t("b.graphLabel")}>
+        <g>
+          {graph.links.map((l) => (
+            <line key={l.a + "|" + l.b} ref={(el) => { const k = l.a + "|" + l.b; if (el) linkRefs.current.set(k, el); else linkRefs.current.delete(k); }} className="graph-link" />
+          ))}
+        </g>
+        <g>
+          {graph.nodes.map((n) => {
+            if (n.kind === "host") {
+              const h = n.host;
+              const hostActive = filter?.type === "host" && filter.value === h.ip;
+              activate(n.id, () => onFilter(hostActive ? null : { type: "host", value: h.ip, label: h.ip }));
+              const label = t("b.hostLabel", { ip: h.ip, services: h.services, changes: h.changes });
+              return (
+                <g
+                  key={n.id}
+                  ref={(el) => { if (el) nodeRefs.current.set(n.id, el); else nodeRefs.current.delete(n.id); }}
+                  className={`graph-node graph-host st-${h.state || (h.alive ? "live" : "gone")}${hostActive ? " is-active" : ""}`}
+                  tabIndex={0} role="button" aria-pressed={hostActive} aria-label={label}
+                  onPointerDown={(e) => { e.currentTarget.setPointerCapture(e.pointerId); svgRef.current._startDrag(n, e); }}
+                  onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); n.onActivate(); } }}
+                >
+                  <circle r={HOST_R} />
+                  <text className="graph-label mono" y={-HOST_R - 6}>{h.ip}</text>
+                </g>
+              );
+            }
+            const p = n.port, h = n.host;
+            const crit = p.severity === "critical";
+            const st = p.state || (p.alive ? "live" : "gone");
+            const active = filter?.type === "asset" && filter.value === p.asset;
+            activate(n.id, () => onFilter(active ? null : { type: "asset", value: p.asset, port: `${h.ip}:${p.port}`, label: `${h.ip}:${p.port}` }));
+            const label = t("b.portLabel", { port: p.port, label: p.label }) + (p.state ? ` · ${t(`k.${p.state}`)}` : "");
+            return (
+              <g
+                key={n.id}
+                ref={(el) => { if (el) nodeRefs.current.set(n.id, el); else nodeRefs.current.delete(n.id); }}
+                className={`graph-node graph-port st-${st}${crit ? " is-crit" : ""}${active ? " is-active" : ""}`}
+                tabIndex={0} role="button" aria-pressed={active} aria-label={label}
+                onPointerDown={(e) => { e.currentTarget.setPointerCapture(e.pointerId); svgRef.current._startDrag(n, e); }}
+                onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); n.onActivate(); } }}
+              >
+                <title>{`${p.port} · ${p.label}`}</title>
+                <circle r={PORT_R} />
+                <text className="graph-label mono" y={PORT_R + 12}>{shortLabel(p.label) || p.port}</text>
+              </g>
+            );
+          })}
+        </g>
+      </svg>
     </div>
   );
 }

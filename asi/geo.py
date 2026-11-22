@@ -2,6 +2,7 @@
 Obsługuje adresy prywatne (lokalizowane w Krakowie / AGH), znane cele testowe
 oraz szybki lookup z pamięcią podręczną i fallbackiem bez zależności zewnętrznych.
 """
+import hashlib
 import ipaddress
 import json
 import os
@@ -41,11 +42,25 @@ def locate_ip(ip_str):
     if ip_clean in _GEO_CACHE:
         return _GEO_CACHE[ip_clean]
 
-    # Sprawdzenie czy IP jest prywatne (np. sieć 10.x, 192.168.x) -> baza w Krakowie (AGH)
+    # Sprawdzenie czy IP jest prywatne (np. sieć 10.x, 192.168.x) -> baza w Krakowie (AGH).
+    # is_hq=False (!) - to realny znaleziony host, nie sam punkt odniesienia "scanner:hq"
+    # dopisywany osobno w main.py::get_scan_geo. Frontend (command_center.html) pomija węzły
+    # z is_hq=True przy rysowaniu pinów/łuków - przy is_hq=True tutaj CAŁY skan sieci lokalnej
+    # (wszystkie hosty prywatne) znikał z globusa, bo każdy host trafiał w ten sam warunek.
+    # Mały, deterministyczny jitter (z hasha IP) rozsuwa hosty wokół Krakowa, żeby zamiast
+    # jednego nakładającego się punktu było widać skupisko - bez tego wszystkie miałyby
+    # identyczne lat/lon i wizualnie zlewałyby się w jeden pin.
     try:
         ip_obj = ipaddress.ip_address(ip_clean)
         if not ip_obj.is_global:
-            res = {**HQ_KRAKOW, "city": f"LAN ({ip_clean})", "is_hq": True}
+            # ±0.25 stlaczało setki pinów w jeden wizualny blob (piny na globusie mają rozmiar
+            # porównywalny albo większy niż taki rozrzut) - 2.5 st. daje wizualnie czytelną
+            # "chmurę" wokół Krakowa, wciąż bez wychodzenia poza okolice Polski/Europy Środkowej.
+            h = int(hashlib.md5(ip_clean.encode()).hexdigest(), 16)
+            jitter_lat = (((h >> 16) % 2001) - 1000) / 1000 * 2.5
+            jitter_lon = ((h % 2001) - 1000) / 1000 * 2.5
+            res = {**HQ_KRAKOW, "lat": HQ_KRAKOW["lat"] + jitter_lat, "lon": HQ_KRAKOW["lon"] + jitter_lon,
+                   "city": f"LAN ({ip_clean})", "is_hq": False}
             _GEO_CACHE[ip_clean] = res
             return res
     except ValueError:

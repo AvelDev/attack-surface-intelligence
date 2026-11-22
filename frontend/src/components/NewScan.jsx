@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import { FileUp } from "lucide-react";
+import { FileUp, HelpCircle } from "lucide-react";
 import { api } from "../api.js";
 import { useI18n } from "../i18n.jsx";
 import { Dialog, Field, Check } from "./ui.jsx";
@@ -18,10 +18,11 @@ export default function NewScan({ onClose, onStarted, onAuthLost, flash, initial
   const [auth, setAuth] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
+  const [help, setHelp] = useState(false);
   const fileRef = useRef(null);
-  // Narzędzia opcjonalne (nuclei, OpenVAS/GVM) bywają niedostępne na danym serwerze -
-  // zanim user zacznie się zastanawiać czemu zaznaczony checkbox nic nie dał, wyłączamy
-  // go od razu i mówimy wprost dlaczego. `null` = jeszcze nie wiadomo (nie blokuj na sztywno).
+  // nuclei bywa niedostępne na danym serwerze - zanim user zacznie się zastanawiać czemu
+  // zaznaczony checkbox nic nie dał, wyłączamy go od razu i mówimy wprost dlaczego.
+  // `null` = jeszcze nie wiadomo (nie blokuj na sztywno).
   const [tools, setTools] = useState(null);
   useEffect(() => {
     let live = true;
@@ -29,9 +30,12 @@ export default function NewScan({ onClose, onStarted, onAuthLost, flash, initial
     return () => { live = false; };
   }, []);
   const nucleiOk = tools ? !!tools.nuclei?.installed : true;
-  const gvmOk = tools ? !!tools.openvas?.installed : true;
   useEffect(() => { if (!nucleiOk) setNuclei(false); }, [nucleiOk]);
-  useEffect(() => { if (!gvmOk) setGvm(false); }, [gvmOk]);
+  // GVM/OpenVAS zostaje schowany, zamiast pokazywać wyszarzony checkbox, dopóki ktoś go
+  // faktycznie nie skonfiguruje w Ustawieniach - przed tym i tak zawsze pomijany (zob.
+  // scanner.py), a wyszarzona opcja tylko sugeruje, że czegoś tu nie dokończono.
+  const gvmAvailable = !!tools?.openvas?.installed;
+  useEffect(() => { if (!gvmAvailable) setGvm(false); }, [gvmAvailable]);
 
   const list = targets.split(/[\n,]/).map((x) => x.trim()).filter(Boolean);
 
@@ -90,7 +94,12 @@ export default function NewScan({ onClose, onStarted, onAuthLost, flash, initial
               </>
             }>
       <form id="ns-form" className="form-grid" onSubmit={submit}>
-        <Field label={t("ns.targets")} hint={t("ns.targetsHint")} className="span-2">
+        <Field label={t("ns.targets")} hint={t("ns.targetsHint")} className="span-2"
+               action={
+                 <button type="button" className="link field-help" onClick={() => setHelp(true)}>
+                   <HelpCircle size={13} aria-hidden="true" /> {t("ns.help")}
+                 </button>
+               }>
           <textarea className="mono" rows={5} value={targets} onChange={(e) => setTargets(e.target.value)}
                     placeholder={"10.0.0.0/24\nlab.example.org\n192.0.2.14"} autoFocus spellCheck={false} />
         </Field>
@@ -109,15 +118,36 @@ export default function NewScan({ onClose, onStarted, onAuthLost, flash, initial
           <Check checked={nuclei} onChange={setNuclei} disabled={!nucleiOk}>
             {t("ns.nuclei")}{!nucleiOk && ` — ${t("ns.unavailable")}`}
           </Check>
-          <Check checked={gvm} onChange={setGvm} disabled={!gvmOk}>
-            {t("ns.gvm")}{!gvmOk && ` — ${t("ns.unavailable")}`}
-          </Check>
+          {gvmAvailable && <Check checked={gvm} onChange={setGvm}>{t("ns.gvm")}</Check>}
         </fieldset>
         <div className="span-2 consent">
           <Check checked={auth} onChange={setAuth}>{t("ns.auth")}</Check>
         </div>
         {error && <p className="form-error span-2" role="alert">{error}</p>}
       </form>
+      {help && <TargetsHelp onClose={() => setHelp(false)} />}
+    </Dialog>
+  );
+}
+
+function TargetsHelp({ onClose }) {
+  const { t } = useI18n();
+  const items = [
+    ["192.0.2.14", "ns.helpIp"],
+    ["lab.example.org", "ns.helpDomain"],
+    ["10.0.0.0/24", "ns.helpCidr"],
+  ];
+  return (
+    <Dialog id="ns-help" title={t("ns.helpTitle")} onClose={onClose}
+            footer={<button type="button" className="btn" onClick={onClose} autoFocus>{t("ui.close")}</button>}>
+      <dl className="help-list">
+        {items.map(([example, key]) => (
+          <div key={key}><dt><code>{example}</code></dt><dd>{t(key)}</dd></div>
+        ))}
+      </dl>
+      <p className="dlg-text">{t("ns.helpMulti")}</p>
+      <p className="dlg-text">{t("ns.helpImport")}</p>
+      <p className="dlg-text">{t("ns.helpLimit")}</p>
     </Dialog>
   );
 }

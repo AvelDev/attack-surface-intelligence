@@ -14,7 +14,7 @@ a.brand { text-decoration: none; color: inherit; }
 .page.split-even { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); }
 .page.scans { grid-template-columns: 340px minmax(0, 1fr); grid-template-rows: minmax(0, 1fr); align-content: stretch; }
 .split-main, .split-side { min-height: 0; }
-.split-side, .split-even > .mod { align-self: start; }
+.split-side, .split-even > .mod, .settings-integrations { align-self: start; }
 
 /* tabela w module: przewijana wewnątrz, nagłówek przyklejony */
 .t-scroll { position: relative; overflow: auto; margin: 0 -16px; flex: 1; min-height: 0; }
@@ -118,6 +118,15 @@ a.brand { text-decoration: none; color: inherit; }
   margin: var(--s-5) -22px 0; padding: 12px 22px; border-top: 1px solid var(--line); background: var(--bg);
 }
 .dlg-sp { flex: 1; }
+
+.field-head { display: flex; align-items: baseline; justify-content: space-between; gap: var(--s-3); }
+.field-help { display: inline-flex; align-items: center; gap: 4px; font-size: var(--fs-11); white-space: nowrap; }
+
+.help-list { display: flex; flex-direction: column; gap: var(--s-3); margin: 0 0 var(--s-4); }
+.help-list dt { margin-bottom: 2px; }
+.help-list dt code { color: var(--ink-2); border: 1px solid var(--line); padding: 1px 6px; }
+.help-list dd { margin: 0; color: var(--ink-3); line-height: 1.5; }
+p.dlg-text + p.dlg-text { margin-top: var(--s-3); }
 
 /* ---------- skany ---------- */
 .s-list { min-height: 0; padding-bottom: 0; }

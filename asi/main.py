@@ -559,7 +559,8 @@ def get_scan(sid: int, user: dict = Depends(auth.require("read"))):
     for f in findings:
         counts[f["severity"]] = counts.get(f["severity"], 0) + 1
 
-    live_score = scanner.risk_score([f["severity"] for f in findings])
+    live_score = scanner.risk_score([f["severity"] for f in findings],
+                                     sum(1 for a in assets if a["kind"] == "ip"))
     s["score"] = s["score"] if s["status"] == "done" else live_score
 
     return {"scan": s, "assets": assets, "edges": edges, "findings": findings, "counts": counts,
