@@ -24,6 +24,59 @@ STATIC = os.path.join(db.ROOT, "static")
 DIST = os.environ.get("ASI_FRONTEND_DIST", os.path.join(db.ROOT, "frontend", "dist"))
 SEV_ORDER = {"critical": 0, "high": 1, "medium": 2, "low": 3, "info": 4}
 
+# To samo, czego probe_web/scanner.py wymaga od zbadanych hostów (SEC_HEADERS) - nasze
+# własne odpowiedzi powinny je mieć też. 'unsafe-inline' w script-src/style-src jest
+# wymuszone przez stary UI (static/*.html, <script>/<style> statyczne, nie renderowane
+# z danych żądania) - nie odtwarza to naprawionego wcześniej XSS (onclick -> data-*
+# + addEventListener), bo ten fix usunął atrybut, a nie liczył na politykę CSP.
+_CSP = (
+    "default-src 'self'; "
+    "script-src 'self' 'unsafe-inline' https://cdnjs.cloudflare.com https://cdn.jsdelivr.net; "
+    "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; "
+    "font-src 'self' https://fonts.gstatic.com; "
+    "img-src 'self' data:; "
+    "connect-src 'self'; "
+    "object-src 'none'; "
+    "base-uri 'self'; "
+    "frame-ancestors 'none'"
+)
+
+
+@app.middleware("http")
+async def _security_headers(request, call_next):
+    resp = await call_next(request)
+    resp.headers["X-Content-Type-Options"] = "nosniff"
+    resp.headers["X-Frame-Options"] = "DENY"
+    resp.headers["Referrer-Policy"] = "strict-origin-when-cross-origin"
+    resp.headers["Content-Security-Policy"] = _CSP
+    if auth.COOKIE_SECURE:
+        resp.headers["Strict-Transport-Security"] = "max-age=31536000; includeSubDomains"
+    return resp
+
+
+# Po wstrzymaniu oknem czasowym - spróbuj dokończyć TEN SAM skan przy najbliższym tyknięciu
+# harmonogramu, nie czekaj cały interval_hours. To jest kontynuacja, nie nowy przebieg.
+RESUME_RETRY_S = 60
+
+
+def _schedule_next_run(schedule_id, scan_id, interval_hours):
+    """Wołane PO zakończeniu skanu wystartowanego przez harmonogram (wątek w _run_schedule_entry) -
+    next_run zależy od tego, czy skan faktycznie się skończył, czy tylko wstrzymał na oknie."""
+    with db.conn() as c:
+        row = c.execute("SELECT status FROM scans WHERE id=?", (scan_id,)).fetchone()
+        now = time.time()
+        if row and row["status"] == "paused_window":
+            next_t = now + RESUME_RETRY_S
+        else:
+            next_t = now + max(1, interval_hours) * 3600
+        c.execute("UPDATE schedules SET last_run=?, next_run=?, last_scan_id=? WHERE id=?",
+                  (now, next_t, scan_id, schedule_id))
+
+
+def _run_schedule_entry(schedule_id, scan_id, interval_hours):
+    scanner.run_scan(scan_id)
+    _schedule_next_run(schedule_id, scan_id, interval_hours)
+
 
 def _scheduler_loop():
     while True:
@@ -31,19 +84,30 @@ def _scheduler_loop():
             now = time.time()
             with db.conn() as c:
                 due = c.execute(
-                    "SELECT id, target, opts, interval_hours, time_window_mins FROM schedules "
+                    "SELECT id, target, opts, interval_hours, time_window_mins, last_scan_id FROM schedules "
                     "WHERE enabled=1 AND next_run <= ?", (now,)).fetchall()
-                for s in due:
-                    opts = json.loads(s["opts"] or "{}")
-                    if s["time_window_mins"]:
-                        opts["time_window_mins"] = s["time_window_mins"]
-                    targets = [t.strip() for t in s["target"].split(",") if t.strip()]
-                    try:
-                        _start_scan(targets, opts)
-                        next_t = now + max(1, s["interval_hours"]) * 3600
-                        c.execute("UPDATE schedules SET last_run=?, next_run=? WHERE id=?", (now, next_t, s["id"]))
-                    except Exception:
-                        pass
+            for s in due:
+                try:
+                    sid = None
+                    if s["last_scan_id"]:
+                        with db.conn() as c:
+                            st = c.execute("SELECT status FROM scans WHERE id=?", (s["last_scan_id"],)).fetchone()
+                        if st and st["status"] == "paused_window":
+                            sid = s["last_scan_id"]  # wznowienie - TEN SAM scan_id, nie nowy wiersz
+                    if sid is None:
+                        opts = json.loads(s["opts"] or "{}")
+                        if s["time_window_mins"]:
+                            opts["time_window_mins"] = s["time_window_mins"]
+                        targets = [t.strip() for t in s["target"].split(",") if t.strip()]
+                        sid, _errors = _create_scan(targets, opts)
+                    with db.conn() as c:
+                        # Odhacz next_run od razu - skan trwa minuty/godziny, inaczej kolejne
+                        # tyknięcie (30s) wystartowałoby ten sam wpis harmonogramu drugi raz.
+                        c.execute("UPDATE schedules SET next_run=? WHERE id=?", (now + 24 * 3600, s["id"]))
+                    threading.Thread(target=_run_schedule_entry, args=(s["id"], sid, s["interval_hours"]),
+                                      daemon=True).start()
+                except Exception:
+                    pass
         except Exception:
             pass
         time.sleep(30)
@@ -213,7 +277,11 @@ def tools(user: dict = Depends(auth.require("read"))):
     return scanner.tool_status()
 
 
-def _start_scan(raw_items, opts):
+def _create_scan(raw_items, opts):
+    """Zapisuje wiersz scans/scan_targets, NIE startuje wątku skanującego. Rozdzielone od
+    _start_scan, żeby harmonogram mógł użyć WŁASNEGO wątku (_run_schedule_entry), który po
+    zakończeniu aktualizuje schedules.next_run/last_scan_id - zwykłe uruchomienie tego nie
+    potrzebuje."""
     resolved, errors = targets_mod.expand(raw_items)
     if not resolved:
         detail = "; ".join(f"{r}: {e}" for r, e in errors[:5]) or "Brak celów."
@@ -225,6 +293,11 @@ def _start_scan(raw_items, opts):
                         (display, thash, json.dumps(opts), time.time(), len(resolved))).lastrowid
         c.executemany("INSERT OR IGNORE INTO scan_targets(scan_id,target) VALUES(?,?)",
                       [(sid, t) for t in resolved])
+    return sid, errors
+
+
+def _start_scan(raw_items, opts):
+    sid, errors = _create_scan(raw_items, opts)
     threading.Thread(target=scanner.run_scan, args=(sid,), daemon=True).start()
     return sid, errors
 
@@ -740,6 +813,20 @@ def stop_scan(sid: int, user: dict = Depends(auth.require("add_remove_modify")))
         if row["status"] not in ("queued", "running"):
             raise HTTPException(409, "Skan nie jest w toku.")
         c.execute("UPDATE scans SET stop_requested=1 WHERE id=?", (sid,))
+    return {"ok": True}
+
+
+@app.post("/api/scans/{sid}/resume")
+def resume_scan(sid: int, user: dict = Depends(auth.require("add_remove_modify"))):
+    """Wznawia skan wstrzymany oknem czasowym - dokończenie od checkpointu
+    (scans.checkpoint), nie nowy przebieg od zera. Zob. scanner.pipeline()/Ctx.load_checkpoint."""
+    with db.conn() as c:
+        row = c.execute("SELECT status FROM scans WHERE id=?", (sid,)).fetchone()
+        if not row:
+            raise HTTPException(404, "Nie ma takiego skanu")
+        if row["status"] != "paused_window":
+            raise HTTPException(409, "Ten skan nie jest wstrzymany oknem czasowym.")
+    threading.Thread(target=scanner.run_scan, args=(sid,), daemon=True).start()
     return {"ok": True}
 
 

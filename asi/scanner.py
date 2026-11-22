@@ -159,6 +159,12 @@ class Ctx:
             self.targets = [r["target"] for r in
                             c.execute("SELECT target FROM scan_targets WHERE scan_id=?", (scan_id,))]
         self.target, self.opts, self.created = row["target"], json.loads(row["opts"]), row["created"]
+        # time_window_mins to budżet na JEDNO posiedzenie (sesję), nie deadline od "created" -
+        # inaczej skan wznowiony długo po pierwszym przebiegu (np. kolejnego dnia) miałby okno
+        # już z definicji przekroczone i natychmiast wstrzymywałby się drugi raz, bez wykonania
+        # żadnej pracy. Każdy nowy Ctx (= nowe wywołanie run_scan, świeże albo wznowienie) dostaje
+        # pełne okno od nowa.
+        self._session_start = time.time()
         self._seen_f = set()
         # Połączenie trwałe na czas skanu dla metod wołanych wyłącznie z głównego wątku
         # pipeline'u (asset/edge/finding/hosts_*/finish) - otwieranie nowego połączenia +
@@ -206,7 +212,7 @@ class Ctx:
         if row and row["stop_requested"]:
             raise ScanStopped("Skan zatrzymany ręcznie przez operatora")
         limit_m = self.opts.get("time_window_mins")
-        if limit_m and (time.time() - self.created) > (int(limit_m) * 60):
+        if limit_m and (time.time() - self._session_start) > (int(limit_m) * 60):
             raise TimeoutError(f"Przekroczono okno czasowe skanu ({limit_m} min)")
 
     def finding(self, asset, sev, title, source, detail="", fix=""):
@@ -243,6 +249,30 @@ class Ctx:
                      "stopped": "zatrzymany ręcznie"}.get(status, "błąd")
         self._conn.execute("UPDATE scans SET status=?, stage=?, score=?, finished=?, duration_s=? WHERE id=?",
                            (status, stage_txt, risk_score(sev), time.time(), time.time() - self.created, self.id))
+        self._conn.commit()
+        if status != "paused_window":
+            # Jedyny status, dla którego checkpoint ma dalej służyć - w każdym innym (done/
+            # stopped/failed) kolejne odpalenie tego scan_id musi zacząć pipeline od zera.
+            self.clear_checkpoint()
+
+    def load_checkpoint(self):
+        """None, jeśli ten skan nie ma zapisanego stanu do wznowienia (pierwszy przebieg,
+        albo poprzedni zakończył się bez przekroczenia okna czasowego)."""
+        row = self._conn.execute("SELECT checkpoint FROM scans WHERE id=?", (self.id,)).fetchone()
+        if not row or not row["checkpoint"]:
+            return None
+        return json.loads(row["checkpoint"])
+
+    def save_checkpoint(self, **fields):
+        """Read-modify-write merge - wołane tylko z głównego wątku pipeline'u (brak
+        współbieżnych pisarzy, więc bez locka, w przeciwieństwie do log())."""
+        cp = self.load_checkpoint() or {}
+        cp.update(fields)
+        self._conn.execute("UPDATE scans SET checkpoint=? WHERE id=?", (json.dumps(cp), self.id))
+        self._conn.commit()
+
+    def clear_checkpoint(self):
+        self._conn.execute("UPDATE scans SET checkpoint=NULL WHERE id=?", (self.id,))
         self._conn.commit()
 
 
@@ -481,6 +511,33 @@ def _host_alive(ctx, ip, gate):
     return False
 
 
+def _persist_port_batch(ctx, found):
+    """Asset/edge/finding dla portów znalezionych w JEDNEJ paczce - musi trafić do bazy
+    zanim ewentualnie wywali nas kolejny ctx.check_time_limit(), inaczej cała paczka,
+    którą naprawdę przeskanowaliśmy, przepadnie razem z przekroczonym oknem czasowym."""
+    for ip, plist in found.items():
+        for p in plist:
+            pid = ctx.asset("port", f"{ip}:{p['port']}", p)
+            ctx.edge(f"ip:{ip}", pid)
+            if p["port"] in RISKY and p.get("service") != "tcpwrapped":
+                sev, title, fix = RISKY[p["port"]]
+                ctx.finding(pid, sev, title, "builtin", f"{ip}:{p['port']} {p['service']} {p['version']}", fix)
+
+
+def _reload_scanned_ports(ctx):
+    """Rekonstrukcja {ip: [portdict,...]} z assetów 'port' już zapisanych dla tego skanu -
+    źródło prawdy dla etapu HTTP, poprawne niezależnie od tego, czy to świeży przebieg czy
+    wznowienie po oknie czasowym (porty z przebiegu PRZED przerwaniem już są w bazie dzięki
+    _persist_port_batch, więc etap HTTP obejmie też hosty doskanowane w poprzedniej sesji)."""
+    rows = ctx._conn.execute(
+        "SELECT value, data FROM assets WHERE scan_id=? AND kind='port'", (ctx.id,)).fetchall()
+    out = {}
+    for r in rows:
+        ip, _, _port = r["value"].rpartition(":")
+        out.setdefault(ip, []).append(json.loads(crypto.dec(r["data"])))
+    return out
+
+
 def retry_silent_hosts(ctx, ports, answered, tools, rate=None, pause_s=HOST_RETRY_PAUSE_S):
     """Jedno ponowne sondowanie hostów, które w tym przebiegu wcale nie odpowiedziały.
 
@@ -516,14 +573,17 @@ def retry_silent_hosts(ctx, ports, answered, tools, rate=None, pause_s=HOST_RETR
     return ports
 
 
-def batched_port_scan(ctx, ips, tools, rate=None, start_batch=200, track_progress=True):
+def batched_port_scan(ctx, ips, tools, rate=None, start_batch=200, track_progress=True, done_offset=0):
     """Dzieli listę IP na paczki, adaptując rozmiar do zmierzonej przepustowości tak, by każda
     paczka trwała ~BATCH_TARGET_S - realizuje "podział na optymalne podgrupy" i daje postęp/czas
     trwania widoczne w trakcie (duży pojedynczy skan naabu/nmap nie dałby żadnego postępu).
 
     Zwraca (porty, answered). `answered` to adresy, które cokolwiek pokazały przed weryfikacją.
-    `track_progress=False` przy powtórce wąskiego podzbioru, żeby pasek hosts_done nie cofał się
-    z pełnej liczby hostów do rozmiaru tej podgrupy.
+    `track_progress=False` przy powtórce wąskiego podzbioru (retry_silent_hosts), żeby pasek
+    hosts_done i checkpoint wznowienia nie cofnęły się z pełnej listy hostów do rozmiaru tej
+    podgrupy - assety z tej podgrupy i tak trafiają do bazy (_persist_port_batch niżej).
+    `done_offset` to liczba hostów już policzona w hosts_done PRZED tym wywołaniem (wznowienie
+    po oknie czasowym - pasek ma kontynuować, nie zaczynać znowu od 0).
     """
     result, answered = {}, set()
     if not ips:
@@ -531,20 +591,29 @@ def batched_port_scan(ctx, ips, tools, rate=None, start_batch=200, track_progres
     batch_size, done = max(1, start_batch), 0
     i = 0
     while i < len(ips):
+        if track_progress:
+            # Zanim spróbujemy kolejnej paczki (i ewentualnie wywalimy się na oknie czasowym) -
+            # zapisz, co jeszcze zostało. To jest checkpoint, z którego wznawia kolejny przebieg.
+            # hosts_total/ip_of/root_id w checkpoincie zostają nietknięte (save_checkpoint robi
+            # merge) - done_offset na wznowienie liczy się z nich, nie jest tu duplikowany.
+            ctx.save_checkpoint(pending_ips=ips[i:])
         ctx.check_time_limit()
         chunk = ips[i:i + batch_size]
         t0 = time.time()
         found, ans = scan_ports(ctx, chunk, tools, rate=rate)
         result.update(found)
         answered |= ans
+        _persist_port_batch(ctx, found)
         elapsed = time.time() - t0
         i += len(chunk)
         done += len(chunk)
         if track_progress:
-            ctx.hosts_progress(done)
-        ctx.log(f"Paczka {len(chunk)} hostów w {elapsed:.1f}s ({done}/{len(ips)})")
+            ctx.hosts_progress(done_offset + done)
+        ctx.log(f"Paczka {len(chunk)} hostów w {elapsed:.1f}s ({done_offset + done}/{done_offset + len(ips)})")
         if elapsed > 0.5:
             batch_size = max(50, min(2000, int(len(chunk) / elapsed * BATCH_TARGET_S)))
+    if track_progress:
+        ctx.save_checkpoint(pending_ips=None)  # ten etap w całości zrobiony - nic do doskanowania
     return result, answered
 
 
@@ -684,75 +753,92 @@ def pipeline(ctx):
     ctx.log("Narzędzia: " + ", ".join(f"{k}={'OK' if v['installed'] else 'brak (fallback)'}"
                                       for k, v in tools.items()))
     ctx.log(f"Cele: {len(targets)}")
-    domains = [t for t in targets if not is_ip(t)]
-    ip_targets = [t for t in targets if is_ip(t)]
 
-    ip_of = {}  # host (domena/subdomena/IP-cel) -> [ip,...]
-    root_id = {}  # host -> id assetu reprezentującego ten cel wejściowy
-    for t in ip_targets:
-        root_id[t] = ctx.asset("ip", t)
-        ip_of[t] = [t]
+    # Wznowienie po oknie czasowym: checkpoint ma ip_of/root_id (żeby NIE powtarzać enumeracji
+    # subdomen/DNS - to już zrobione i zapisane) i pending_ips (co jeszcze zostało ze skanu
+    # portów; None/[] = ta faza skończyła się w poprzednim przebiegu, idziemy prosto do HTTP).
+    cp = ctx.load_checkpoint()
+    if cp:
+        ip_of, root_id = cp["ip_of"], cp["root_id"]
+        pending_ips = cp.get("pending_ips")
+        # Pochodna z hosts_total zapisanego RAZ przy pierwszym przebiegu, nie osobny licznik -
+        # inaczej przy DRUGIM i kolejnym wznowieniu (kilka przebiegów tego samego skanu pod
+        # rząd) offset zostałby z poprzedniego przebiegu i pasek postępu cofnąłby się.
+        total = cp.get("hosts_total", len(pending_ips or []))
+        done_offset = total - len(pending_ips or [])
+        ctx.log(f"Wznowienie po oknie czasowym - pomijam ponowną enumerację subdomen/DNS "
+                f"({done_offset} z {total} adresów już doskanowanych wcześniej)")
+    else:
+        domains = [t for t in targets if not is_ip(t)]
+        ip_targets = [t for t in targets if is_ip(t)]
 
-    if domains:
-        ctx.stage(f"Enumeracja subdomen ({len(domains)} domen)")
-        name_to_domain = {}
-        for d in domains:
-            root_id[d] = ctx.asset("domain", d)
-            for n in enum_subdomains(ctx, d, tools) | {d}:
-                name_to_domain.setdefault(n, d)
-        names = sorted(name_to_domain)
-        ctx.log(f"Znaleziono nazw: {len(names)}")
-        ctx.stage("Rozwiązywanie DNS")
-        resolved, cnames = resolve(ctx, names, tools)
-        for n in names:
-            d = name_to_domain[n]
-            nid = root_id[d] if n == d else ctx.asset("subdomain", n, {"cname": cnames.get(n, [])})
-            if n != d:
-                ctx.edge(root_id[d], nid)
-            tk = [c for c in cnames.get(n, []) if c.endswith(TAKEOVER_SUFFIXES)]
-            if tk and not resolved.get(n):
-                ctx.finding(nid, "high", "Możliwy subdomain takeover (CNAME do usługi zewnętrznej bez celu)",
-                            "builtin", f"{n} -> {tk[0]}",
-                            "Usuń wpis CNAME albo odzyskaj zasób u dostawcy; sprawdź szablony nuclei 'takeovers'.")
-            elif not resolved.get(n) and n != d:
-                ctx.finding(nid, "low", "Subdomena nie rozwiązuje się w DNS (możliwy dangling record)",
-                            "builtin", n, "Usuń nieużywany wpis DNS lub zweryfikuj podatność na subdomain takeover.")
-            ip_of[n] = resolved.get(n, [])
-            for ip in ip_of[n]:
-                ctx.edge(nid, ctx.asset("ip", ip))
+        ip_of = {}  # host (domena/subdomena/IP-cel) -> [ip,...]
+        root_id = {}  # host -> id assetu reprezentującego ten cel wejściowy
+        for t in ip_targets:
+            root_id[t] = ctx.asset("ip", t)
+            ip_of[t] = [t]
 
-    # IP podane wprost (cel lub CIDR) nie podlegają filtrowi prywatności - to świadomy wybór
-    # użytkownika (np. skan wewnętrznej sieci 10.0.0.0/8). Filtr dotyczy tylko adresów
-    # odkrytych przez DNS z domen - tam nieoczekiwana prywatna odpowiedź bywa podejrzana.
-    direct_ips = {t for t in ip_targets}
-    resolved_ips = {ip for host, v in ip_of.items() if host not in direct_ips for ip in v}
-    if not ALLOW_PRIVATE:
-        priv = [i for i in resolved_ips if not ipaddress.ip_address(i).is_global]
-        if priv:
-            ctx.log(f"Pomijam adresy nieglobalne z DNS (ASI_ALLOW_PRIVATE=1 aby skanować): {priv}")
-            resolved_ips -= set(priv)
-    ips = sorted(direct_ips | resolved_ips)
-    ctx.hosts_total(len(ips))
-    if ctx.opts.get("gvm"):
-        if gvm_scan.configured():
-            ctx.log(f"OpenVAS: zlecam głęboki skan w tle dla {len(ips)} adresów "
-                     "(wolny, nie blokuje kolejki ani wyniku tego skanu)")
-            threading.Thread(target=gvm_scan.run, args=(ctx.id, ips, ctx.log), daemon=True).start()
-        else:
-            ctx.log("OpenVAS: pomijam - nieskonfigurowany (ASI_GVM_HOST / ASI_GVM_PASSWORD)")
+        if domains:
+            ctx.stage(f"Enumeracja subdomen ({len(domains)} domen)")
+            name_to_domain = {}
+            for d in domains:
+                root_id[d] = ctx.asset("domain", d)
+                for n in enum_subdomains(ctx, d, tools) | {d}:
+                    name_to_domain.setdefault(n, d)
+            names = sorted(name_to_domain)
+            ctx.log(f"Znaleziono nazw: {len(names)}")
+            ctx.stage("Rozwiązywanie DNS")
+            resolved, cnames = resolve(ctx, names, tools)
+            for n in names:
+                d = name_to_domain[n]
+                nid = root_id[d] if n == d else ctx.asset("subdomain", n, {"cname": cnames.get(n, [])})
+                if n != d:
+                    ctx.edge(root_id[d], nid)
+                tk = [c for c in cnames.get(n, []) if c.endswith(TAKEOVER_SUFFIXES)]
+                if tk and not resolved.get(n):
+                    ctx.finding(nid, "high", "Możliwy subdomain takeover (CNAME do usługi zewnętrznej bez celu)",
+                                "builtin", f"{n} -> {tk[0]}",
+                                "Usuń wpis CNAME albo odzyskaj zasób u dostawcy; sprawdź szablony nuclei 'takeovers'.")
+                elif not resolved.get(n) and n != d:
+                    ctx.finding(nid, "low", "Subdomena nie rozwiązuje się w DNS (możliwy dangling record)",
+                                "builtin", n, "Usuń nieużywany wpis DNS lub zweryfikuj podatność na subdomain takeover.")
+                ip_of[n] = resolved.get(n, [])
+                for ip in ip_of[n]:
+                    ctx.edge(nid, ctx.asset("ip", ip))
 
-    ctx.stage(f"Skan portów ({len(ips)} adresów IP)")
-    ports, answered = batched_port_scan(ctx, ips, tools, rate=ctx.opts.get("rate_limit"))
-    ports = retry_silent_hosts(ctx, ports, answered, tools, rate=ctx.opts.get("rate_limit"))
-    port_id = {}
-    for ip, plist in ports.items():
-        for p in plist:
-            pid = ctx.asset("port", f"{ip}:{p['port']}", p)
-            port_id[(ip, p["port"])] = pid
-            ctx.edge(f"ip:{ip}", pid)
-            if p["port"] in RISKY and p.get("service") != "tcpwrapped":
-                sev, title, fix = RISKY[p["port"]]
-                ctx.finding(pid, sev, title, "builtin", f"{ip}:{p['port']} {p['service']} {p['version']}", fix)
+        # IP podane wprost (cel lub CIDR) nie podlegają filtrowi prywatności - to świadomy wybór
+        # użytkownika (np. skan wewnętrznej sieci 10.0.0.0/8). Filtr dotyczy tylko adresów
+        # odkrytych przez DNS z domen - tam nieoczekiwana prywatna odpowiedź bywa podejrzana.
+        direct_ips = {t for t in ip_targets}
+        resolved_ips = {ip for host, v in ip_of.items() if host not in direct_ips for ip in v}
+        if not ALLOW_PRIVATE:
+            priv = [i for i in resolved_ips if not ipaddress.ip_address(i).is_global]
+            if priv:
+                ctx.log(f"Pomijam adresy nieglobalne z DNS (ASI_ALLOW_PRIVATE=1 aby skanować): {priv}")
+                resolved_ips -= set(priv)
+        pending_ips = sorted(direct_ips | resolved_ips)
+        done_offset = 0
+        ctx.hosts_total(len(pending_ips))
+        ctx.save_checkpoint(ip_of=ip_of, root_id=root_id, pending_ips=pending_ips, hosts_total=len(pending_ips))
+        if ctx.opts.get("gvm"):
+            if gvm_scan.configured():
+                ctx.log(f"OpenVAS: zlecam głęboki skan w tle dla {len(pending_ips)} adresów "
+                         "(wolny, nie blokuje kolejki ani wyniku tego skanu)")
+                threading.Thread(target=gvm_scan.run, args=(ctx.id, pending_ips, ctx.log), daemon=True).start()
+            else:
+                ctx.log("OpenVAS: pomijam - nieskonfigurowany (ASI_GVM_HOST / ASI_GVM_PASSWORD)")
+
+    if pending_ips:
+        ctx.stage(f"Skan portów ({len(pending_ips)} adresów IP)")
+        new_ports, answered = batched_port_scan(ctx, pending_ips, tools, rate=ctx.opts.get("rate_limit"),
+                                                  done_offset=done_offset)
+        retry_silent_hosts(ctx, new_ports, answered, tools, rate=ctx.opts.get("rate_limit"))
+    else:
+        ctx.stage("Skan portów (zakończony w poprzednim przebiegu)")
+    # Zawsze z bazy, nie z lokalnego dict-a powyżej - poprawne i dla świeżego przebiegu, i dla
+    # wznowienia (porty hostów doskanowanych PRZED przerwaniem już tam są dzięki
+    # _persist_port_batch, więc etap HTTP niżej obejmie też ich, nie tylko tę resztę).
+    ports = _reload_scanned_ports(ctx)
 
     ctx.stage("Sondowanie usług HTTP")
     sigs = signatures.list_all()  # raz na skan, nie per-asset
@@ -776,7 +862,7 @@ def pipeline(ctx):
         hdr = w.pop("headers", {})
         body = w.pop("body", "")
         wid = ctx.asset("web", url, w)
-        ctx.edge(port_id.get((ip, port), root_id.get(host, f"subdomain:{host}")), wid)
+        ctx.edge(f"port:{ip}:{port}", wid)
         st = w["status"]
         if url.startswith("http://") and 200 <= st < 300:
             ctx.finding(wid, "medium", "Usługa dostępna po nieszyfrowanym HTTP bez przekierowania",

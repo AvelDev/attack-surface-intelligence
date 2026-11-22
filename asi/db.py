@@ -125,6 +125,17 @@ _SCANS_MIGRATIONS = (
     "hosts_done INTEGER NOT NULL DEFAULT 0",
     "duration_s REAL",
     "stop_requested INTEGER NOT NULL DEFAULT 0",
+    # Stan potrzebny do prawdziwego wznowienia po oknie czasowym (nie licząc szyfrowanych
+    # pól jak log/detail - to tylko adresy/mapowania celu, ta sama jawność co scan_targets):
+    # {"ip_of": {...}, "root_id": {...}, "pending_ips": [...], "done_offset": N}. NULL = scan
+    # nieprzerwany oknem czasowym (albo już wznowiony do końca) - nic do kontynuowania.
+    "checkpoint TEXT",
+)
+_SCHEDULES_MIGRATIONS = (
+    # Wskazuje na ostatni wystartowany przez ten harmonogram skan - scheduler sprawdza jego
+    # status: jeśli 'paused_window', wznawia TEN SAM skan (kontynuacja checkpointu) zamiast
+    # zaczynać nowy od zera.
+    "last_scan_id INTEGER",
 )
 
 
@@ -143,6 +154,8 @@ def init():
         c.executescript(SCHEMA)
         for coldef in _SCANS_MIGRATIONS:
             _add_column(c, "scans", coldef)
+        for coldef in _SCHEDULES_MIGRATIONS:
+            _add_column(c, "schedules", coldef)
         c.execute("CREATE INDEX IF NOT EXISTS idx_scans_target_hash ON scans(target_hash)")
         c.execute("UPDATE scans SET status='failed', stage='przerwany (restart)' "
                   "WHERE status IN ('queued','running')")
