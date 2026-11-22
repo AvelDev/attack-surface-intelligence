@@ -90,10 +90,19 @@ def _scheduler_loop():
                 try:
                     sid = None
                     if s["last_scan_id"]:
+                        # Claim atomowy - jeśli ktoś inny (np. ręczne /resume) już wygrał wyścig
+                        # o ten sam scan_id, rowcount=0 i NIE dublujemy wątku run_scan.
                         with db.conn() as c:
-                            st = c.execute("SELECT status FROM scans WHERE id=?", (s["last_scan_id"],)).fetchone()
-                        if st and st["status"] == "paused_window":
-                            sid = s["last_scan_id"]  # wznowienie - TEN SAM scan_id, nie nowy wiersz
+                            cur = c.execute(
+                                "UPDATE scans SET status='queued', stage='wznowienie' WHERE id=? AND status='paused_window'",
+                                (s["last_scan_id"],))
+                            if cur.rowcount:
+                                sid = s["last_scan_id"]  # wznowienie - TEN SAM scan_id, nie nowy wiersz
+                            else:
+                                live = c.execute("SELECT status FROM scans WHERE id=?",
+                                                  (s["last_scan_id"],)).fetchone()
+                                if live and live["status"] in ("queued", "running"):
+                                    continue  # ktoś inny już to wznawia/skanuje - pomiń to tyknięcie
                     if sid is None:
                         opts = json.loads(s["opts"] or "{}")
                         if s["time_window_mins"]:
@@ -819,12 +828,19 @@ def stop_scan(sid: int, user: dict = Depends(auth.require("add_remove_modify")))
 @app.post("/api/scans/{sid}/resume")
 def resume_scan(sid: int, user: dict = Depends(auth.require("add_remove_modify"))):
     """Wznawia skan wstrzymany oknem czasowym - dokończenie od checkpointu
-    (scans.checkpoint), nie nowy przebieg od zera. Zob. scanner.pipeline()/Ctx.load_checkpoint."""
+    (scans.checkpoint), nie nowy przebieg od zera. Zob. scanner.pipeline()/Ctx.load_checkpoint.
+
+    Claim atomowy (UPDATE ... WHERE status='paused_window'), nie SELECT-potem-UPDATE -
+    inaczej dwa równoległe wywołania (albo to i harmonogram jednocześnie) mogłyby obie
+    przejść walidację i wystartować DWA wątki run_scan dla tego samego scan_id, ścigające
+    się o checkpoint."""
     with db.conn() as c:
         row = c.execute("SELECT status FROM scans WHERE id=?", (sid,)).fetchone()
         if not row:
             raise HTTPException(404, "Nie ma takiego skanu")
-        if row["status"] != "paused_window":
+        cur = c.execute(
+            "UPDATE scans SET status='queued', stage='wznowienie' WHERE id=? AND status='paused_window'", (sid,))
+        if cur.rowcount == 0:
             raise HTTPException(409, "Ten skan nie jest wstrzymany oknem czasowym.")
     threading.Thread(target=scanner.run_scan, args=(sid,), daemon=True).start()
     return {"ok": True}

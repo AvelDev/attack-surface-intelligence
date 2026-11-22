@@ -122,3 +122,31 @@ def test_pipeline_resume_skips_already_done_phases(make_ctx, monkeypatch):
     monkeypatch.setattr(ctx, "hosts_total", boom)
 
     scanner.pipeline(ctx)  # nie powinno rzucić - dokończa z checkpointu, nie od zera
+
+
+def test_resume_claim_is_atomic_not_select_then_update(temp_db):
+    """Regresja (security review, TOCTOU): POST /api/scans/{id}/resume i gałąź wznowienia w
+    _scheduler_loop (asi/main.py) claim'ują paused_window atomowo (UPDATE ... WHERE
+    status='paused_window', sprawdzane rowcount), nie SELECT-potem-UPDATE - inaczej dwa
+    równoległe wywołania (ręczne /resume + harmonogram, albo dwa kliknięcia) mogłyby oba
+    przejść walidację i wystartować DWA wątki run_scan dla tego samego scan_id, ścigające się
+    o checkpoint. Ten test odtwarza dokładnie zapytanie z main.py."""
+    import json
+    import time
+
+    CLAIM_SQL = "UPDATE scans SET status='queued', stage='wznowienie' WHERE id=? AND status='paused_window'"
+
+    with temp_db.conn() as c:
+        sid = c.execute(
+            "INSERT INTO scans(target,target_hash,opts,created,status) VALUES(?,?,?,?,?)",
+            ("10.0.0.1", "", json.dumps({}), time.time(), "paused_window")).lastrowid
+
+    with temp_db.conn() as c:
+        first = c.execute(CLAIM_SQL, (sid,))
+        assert first.rowcount == 1, "pierwszy caller musi wygrać wyścig o wznowienie"
+
+    with temp_db.conn() as c:
+        second = c.execute(CLAIM_SQL, (sid,))
+        assert second.rowcount == 0, "drugi (jednoczesny) caller NIE może też wygrać - status już nie jest paused_window"
+        status = c.execute("SELECT status FROM scans WHERE id=?", (sid,)).fetchone()["status"]
+        assert status == "queued", "wygrany claim musi zostać widoczny dla kolejnego sprawdzenia"
