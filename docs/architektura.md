@@ -80,8 +80,23 @@ własna sieć) zakończony ze 556+ ustaleniami, score 100/100.
 Harmonogram (`main._scheduler_loop`, wątek w tle, co 30 s) uruchamia zapisane
 cyklicznie skany (`schedules`: cel, interwał godzinowy, okno czasowe). Jeśli pojedynczy
 skan przekroczy swoje okno czasowe (`Ctx.check_time_limit`), pipeline rzuca `TimeoutError`,
-`run_scan` łapie to osobno od zwykłego błędu i ustawia status `paused_window` - pełne
-wznowienie (ponowny przebieg) następuje przy najbliższym `next_run`.
+`run_scan` łapie to osobno od zwykłego błędu i ustawia status `paused_window`.
+
+**Prawdziwe wznowienie, nie restart od zera**: `scans.checkpoint` (JSON: `ip_of`, `root_id`,
+`pending_ips`, `hosts_total`) jest zapisywany przyrostowo - raz przed etapem skanu portów
+(po enumeracji subdomen/DNS) i przy każdej paczce `batched_port_scan` (przed kolejnym
+`check_time_limit()`, więc nawet paczki ukończone tuż przed przerwaniem oknem nie przepadają).
+Porty znalezione w paczce trafiają do bazy natychmiast (`_persist_port_batch`), nie dopiero po
+całym etapie - stąd `_reload_scanned_ports` zawsze odtwarza pełny stan z bazy, niezależnie od
+tego, czy to świeży przebieg, czy wznowienie. Harmonogram sprawdza, czy ostatni skan danego
+wpisu jest `paused_window` - jeśli tak, wznawia TEN SAM `scan_id` (nie tworzy nowego wiersza)
+przez `_run_schedule_entry`; `next_run` wtedy ustawiany jest krótko (60 s), nie na pełny
+interwał, żeby duży skan mógł dociągnąć się przez kolejne okna. Ręczne wznowienie:
+`POST /api/scans/{id}/resume`. Ważne: `time_window_mins` to budżet NA SESJĘ (liczony od
+momentu wywołania `run_scan`, nie od `created` skanu) - inaczej wznowienie długo po pierwszym
+przebiegu miałoby okno już z definicji przekroczone i natychmiast wstrzymywałoby się drugi raz
+bez wykonania żadnej pracy. Zweryfikowane end-to-end przez realne API (dwa kolejne okna
+czasowe, `hosts_done` rośnie w sposób ciągły 0→200→400, nie cofa się między przebiegami).
 
 ## 3. Model danych (asi/db.py)
 
@@ -190,6 +205,15 @@ do strony trzeciej po zwykłym HTTP jest ujawnieniem danych, nie czymś domyśln
 bezpiecznym. Online lookup wymaga świadomego `ASI_GEO_ONLINE_LOOKUP=1`; domyślnie
 zostaje deterministyczny fallback bez połączenia na zewnątrz.
 
+Middleware `_security_headers` (`asi/main.py`) dopisuje do KAŻDEJ odpowiedzi własnego API
+to samo, czego `probe_web`/`SEC_HEADERS` oczekuje od zbadanych hostów: `X-Content-Type-Options`,
+`X-Frame-Options`, `Referrer-Policy`, `Content-Security-Policy` (plus `Strict-Transport-Security`,
+gdy `ASI_COOKIE_SECURE=1`, czyli za TLS-terminującym proxy). CSP pozwala na `'unsafe-inline'` w
+`script-src`/`style-src` - wymusza to stary UI (`static/*.html`, znaczniki statyczne, nie
+renderowane z danych żądania), więc nie odtwarza to naprawionego wcześniej XSS (ten fix usunął
+atrybut `onclick`, nie liczył na politykę CSP) - a mimo to CSP blokuje nieautoryzowane źródła
+skryptów/stylów/zasobów spoza explicite dozwolonej listy (CDN z SRI + Google Fonts).
+
 ## 6. Bezpieczeństwo skanowania
 
 - Cel zawsze walidowany (`scanner.normalize_target`, `targets.expand`) -
@@ -210,15 +234,29 @@ zostaje deterministyczny fallback bez połączenia na zewnątrz.
 
 Wszystkie narzędzia skanujące (nmap, subfinder, dnsx, naabu, httpx, nuclei)
 wbudowane w jeden obraz - zero WSL/Kali/ręcznej instalacji `go install` dla
-kogokolwiek, kto ma tylko Dockera. Dwuetapowy build: `golang:1.23-bookworm`
+kogokolwiek, kto ma tylko Dockera. Trzyetapowy build: `golang:1.23-bookworm`
 kompiluje narzędzia ProjectDiscovery (`GOTOOLCHAIN=auto`, bo ich wymagania
 wobec wersji Go rosną szybciej niż warto gonić tagiem obrazu bazowego),
+`node:22-bookworm-slim` buduje panel React (`frontend/` → `frontend/dist`,
+tylko statyczne pliki trafiają do finalnego obrazu, bez `node_modules`),
 finalny obraz to `python:3.12-slim-bookworm` + `nmap` + skopiowane binarki.
 
-Kontener chodzi jako root, ale z `cap_drop: [ALL]` + `cap_add: [NET_RAW, NET_ADMIN]`
-w `docker-compose.yml` - realne least-privilege na poziomie Dockera (dokładnie te
-dwie capability, nic więcej), bez kombinowania z `setcap` + non-root userem
-wewnątrz kontenera. `scanner._naabu_can_syn()` wykrywa to przez `os.geteuid() == 0`
+Binarki Go trafiają do dedykowanego `/opt/pd/bin`, ustawionego na `PATH` PRZED
+`/usr/local/bin` - bez tego `pip install` (zależność biblioteki `httpx`) kładzie
+w `/usr/local/bin` własny skrypt też nazwany `httpx`, który po cichu przesłania
+binarkę ProjectDiscovery o tej samej nazwie; sondowanie HTTP wtedy bez żadnego
+błędu spada na wolniejszy fallback w czystym Pythonie. Realny bug, złapany po
+tym, jak smoke test przeszedł, ale log skanu nie pokazywał wywołania `httpx`.
+Obraz ma też `HEALTHCHECK` (czysty Python, bez `curl` w finalnym obrazie) i
+`CMD` z `exec`, żeby `SIGTERM` trafiał do `uvicorn` jako PID 1 bez czekania na
+10-sekundowy grace period `SIGKILL`.
+
+Kontener chodzi jako root, ale z `cap_drop: [ALL]` + `cap_add: [NET_RAW]`
+w `docker-compose.yml` - realne least-privilege na poziomie Dockera (dokładnie ta
+jedna capability, nic więcej - `NET_ADMIN` był tu niepotrzebny i został usunięty po
+automatycznym security review; SYN scan zweryfikowany, że działa z samym `NET_RAW`),
+bez kombinowania z `setcap` + non-root userem wewnątrz kontenera.
+`scanner._naabu_can_syn()` wykrywa to przez `os.geteuid() == 0`
 jako sygnał pierwszeństwa (na WSL/Kali bez roota sygnałem jest `getcap` na
 pliku binarki - `scripts/install_tools.sh` ustawia to tam ręcznie) - w obu
 przypadkach: jeśli żadnego nie da się potwierdzić, bezpieczny fallback do
@@ -226,9 +264,12 @@ wolniejszego, ale zawsze działającego connect scan.
 
 `network_mode: host` jest wymagany na realne skanowanie sieci LAN/discovery -
 domyślna sieć mostkowa Dockera (NAT) ogranicza widoczność i łamie SYN scan.
-Działa natywnie na Linuksie; na Docker Desktop (Windows/Mac) trzeba przejść na
-mapowanie portów (`ports:`) kosztem zasięgu skanowania ograniczonego do tego,
-co widoczne z wewnętrznej maszyny wirtualnej Desktopa - udokumentowane w README.
+Działa natywnie na Linuksie; na Docker Desktop (Windows/Mac) nakładka
+`docker-compose.desktop.yml` (`docker compose -f docker-compose.yml -f
+docker-compose.desktop.yml up -d --build`) zamienia to na publikację portu
+(`ASI_PUBLISH`, domyślnie `127.0.0.1:8000`) kosztem zasięgu skanowania
+ograniczonego do tego, co widoczne z wewnętrznej maszyny wirtualnej Desktopa -
+świadomy kompromis, udokumentowany w README.
 
 Dane (`/data`: baza SQLite + klucz szyfrowania) i szablony nuclei trzymane w
 nazwanych wolumenach - przetrwają restart/rebuild kontenera. Zweryfikowane
@@ -236,6 +277,10 @@ end-to-end: `docker compose up -d`, pełny skan `scanme.nmap.org` od zera do
 "zakończony" wewnątrz kontenera, z potwierdzonym użyciem `naabu -s s` (SYN) -
 skan portów zajął 4,3 s (dla porównania: dziesiątki sekund na connect scan
 bez tej capability).
+
+CI (`.github/workflows/docker-smoke.yml`, GitHub Actions) odtwarza `scripts/docker_smoke_test.sh`
+bez skanu (build + panel + logowanie + 6 narzędzi + healthcheck) na każdy push/PR do `main` -
+żeby regresja typu "httpx przesłonięty przez pip" (patrz wyżej) nie wróciła po cichu.
 
 ## 8. Dlaczego Python/FastAPI, nie Go/Rust/C++
 
@@ -268,14 +313,17 @@ nie język implementacji).
 | Szyfrowanie wrażliwych pól w spoczynku | `asi/crypto.py` |
 | Integracja z DefectDojo | `asi/defectdojo.py` |
 | Harmonogram - okno czasowe i częstotliwość | `main._scheduler_loop`, `schedules`, `Ctx.check_time_limit` (§2, §7) |
+| Wznowienie po oknie czasowym (nie restart od zera) | `scans.checkpoint`, `Ctx.*_checkpoint`, `POST /api/scans/{id}/resume` (§2) |
 | Łatwość uruchomienia (kryterium 20%) | `Dockerfile` + `docker-compose.yml` (§7) - jedna komenda, bez WSL |
 
 ## 10. Znane zaległości (uczciwie, dla jury)
 
-- **Wznowienie po oknie czasowym** (`paused_window`) uruchamia cały skan od
-  nowa przy kolejnym `next_run`, nie kontynuuje od zapisanego postępu - prosty,
-  ale świadomy kompromis czasowy na hackathon, nie prawdziwe checkpointowanie.
-- Brak zautomatyzowanych testów (pytest) poza doraźnymi skryptami weryfikacyjnymi
-  używanymi podczas developmentu.
+- Testy automatyczne (`tests/`, `pytest`) są ograniczone do regresji na rzeczach, które
+  już raz naprawiliśmy i nie chcemy, żeby wróciły po cichu: hierarchia RBAC (w tym
+  admin-only dla ustawień DefectDojo), SSRF w `path_check` i w `defectdojo.validate_url`,
+  separacja namespace `import:` dla baseline diffa, `retry_silent_hosts` nie dotykający
+  hostów odrzuconych przez `verify_ports`. To NIE jest pokrycie całego pipeline'u (brak
+  testów na sam skan sieci - wymagałby albo mocków narzędzi zewnętrznych, albo realnego
+  środowiska testowego) - uczciwie, kompromis czasowy, nie udawane 100%.
 - `network_mode: host` (Docker) działa w pełni tylko na natywnym Linuksie -
   na Docker Desktop (Windows/Mac) skanowanie LAN jest ograniczone (§7).
