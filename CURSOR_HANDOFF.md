@@ -84,7 +84,7 @@ Skrót:
   z samym NET_RAW, restart całej distro WSL nie psuje danych (wolumeny).
 - **Nagłówki bezpieczeństwa na własnym API** (`asi/main.py::_security_headers`) - CSP,
   X-Frame-Options, X-Content-Type-Options, Referrer-Policy (+ HSTS gdy `ASI_COOKIE_SECURE=1`).
-  To samo, czego `SEC_HEADERS` w `scan/checks.py` oczekuje od zbadanych hostów.
+  To samo, czego `SEC_HEADERS` w `scan/web.py` oczekuje od zbadanych hostów.
 - **CI** (`.github/workflows/`): `docker-smoke.yml` (build + smoke test bez skanu) i
   `tests.yml` (pytest) na każdy push/PR do `main`.
 - **Panel React** (`frontend/`, Vite): nowy UI pod `/` - 4 widoki (zmiany od przebiegu, mapa
