@@ -22,7 +22,7 @@ import xml.etree.ElementTree as ET
 from concurrent.futures import ThreadPoolExecutor
 from urllib.parse import urlparse
 
-from . import crypto, db, defectdojo, gvm_scan, signatures
+from . import config, crypto, db, defectdojo, gvm_scan, signatures
 
 os.environ["PATH"] = os.environ.get("PATH", "") + os.pathsep + os.path.expanduser("~/go/bin")
 
@@ -172,7 +172,7 @@ class Ctx:
         # commit + close przy KAŻDYM pojedynczym assecie/findingu mierzalnie spowalniało
         # skany na tysiącach hostów. log()/stage() zostają przy db.conn() per-call, bo log()
         # jest dzielony z wątkiem gvm_scan w tle i ma już własny LOG_LOCK na to.
-        self._conn = sqlite3.connect(db.DB_PATH, timeout=30)
+        self._conn = sqlite3.connect(config.load().db_path, timeout=30)
         self._conn.row_factory = sqlite3.Row
 
     def close(self):

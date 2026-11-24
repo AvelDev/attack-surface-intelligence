@@ -1,12 +1,45 @@
-"""Cienka warstwa SQLite (stdlib). Jedno połączenie na wywołanie - bezpieczne dla wątków."""
+"""Połączenie z SQLite (stdlib) i wersjonowane migracje schematu.
+
+Jedno połączenie na wywołanie - bezpieczne dla wątków. Schemat zna tylko ten moduł i pakiet repo/.
+Migracje są numerowane (PRAGMA user_version): nowa zmiana schematu = nowa funkcja na końcu MIGRATIONS,
+nigdy edycja istniejącej. Dzięki temu starszą bazę można bezpiecznie podnieść, a wersję sprawdzić w /api/health.
+
+Bazy sprzed wersjonowania (user_version=0) mają już tabele - `CREATE TABLE IF NOT EXISTS` ich nie rusza,
+a brakujące kolumny dokłada `_m2_legacy_columns`.
+"""
 import os
 import sqlite3
 from contextlib import contextmanager
 
-ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-DB_PATH = os.environ.get("ASI_DB", os.path.join(ROOT, "data", "asi.db"))
+from . import config
 
-SCHEMA = """
+ROOT = str(config.ROOT)
+
+
+@contextmanager
+def conn():
+    c = sqlite3.connect(config.load().db_path, timeout=30)
+    c.row_factory = sqlite3.Row
+    try:
+        yield c
+        c.commit()
+    finally:
+        c.close()
+
+
+def raw_connect():
+    """Połączenie bez menedżera kontekstu - dla kodu, który trzyma je na czas skanu i sam commituje/zamyka."""
+    c = sqlite3.connect(config.load().db_path, timeout=30)
+    c.row_factory = sqlite3.Row
+    return c
+
+
+def _columns(c, table):
+    return {r["name"] for r in c.execute(f"PRAGMA table_info({table})")}
+
+
+def _m1_base(c):
+    c.executescript("""
 CREATE TABLE IF NOT EXISTS scans(
   id INTEGER PRIMARY KEY AUTOINCREMENT,
   target TEXT NOT NULL,
@@ -20,7 +53,9 @@ CREATE TABLE IF NOT EXISTS scans(
   duration_s REAL,
   created REAL NOT NULL,
   finished REAL,
-  log TEXT NOT NULL DEFAULT ''
+  log TEXT NOT NULL DEFAULT '',
+  stop_requested INTEGER NOT NULL DEFAULT 0,
+  checkpoint TEXT
 );
 CREATE TABLE IF NOT EXISTS scan_targets(
   scan_id INTEGER NOT NULL, target TEXT NOT NULL,
@@ -100,62 +135,76 @@ CREATE TABLE IF NOT EXISTS schedules(
   time_window_mins INTEGER NOT NULL DEFAULT 60,
   last_run REAL,
   next_run REAL NOT NULL,
-  enabled INTEGER NOT NULL DEFAULT 1
+  enabled INTEGER NOT NULL DEFAULT 1,
+  last_scan_id INTEGER
 );
-"""
+CREATE TABLE IF NOT EXISTS alerts(
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  scan_id INTEGER NOT NULL,
+  target TEXT NOT NULL,
+  level TEXT NOT NULL,
+  message TEXT NOT NULL,
+  created REAL NOT NULL,
+  read INTEGER NOT NULL DEFAULT 0
+);
+""")
 
 
-@contextmanager
-def conn():
-    c = sqlite3.connect(DB_PATH, timeout=30)
-    c.row_factory = sqlite3.Row
-    try:
-        yield c
-        c.commit()
-    finally:
-        c.close()
+# Kolumny dodane po pierwszym wydaniu - CREATE TABLE IF NOT EXISTS nie doda ich do istniejącej bazy.
+# SQLite nie ma "ADD COLUMN IF NOT EXISTS", więc sprawdzamy PRAGMA table_info.
+_LEGACY_COLUMNS = {
+    "scans": ("target_hash TEXT NOT NULL DEFAULT ''", "hosts_total INTEGER NOT NULL DEFAULT 0",
+              "hosts_done INTEGER NOT NULL DEFAULT 0", "duration_s REAL", "stop_requested INTEGER NOT NULL DEFAULT 0",
+              # Stan do prawdziwego wznowienia po oknie czasowym (adresy/mapowania celu, nie dane wrażliwe):
+              # {"ip_of", "root_id", "pending_ips", "hosts_total"}. NULL = nic do kontynuowania.
+              "checkpoint TEXT"),
+    "schedules": ("opts TEXT NOT NULL DEFAULT '{}'", "time_window_mins INTEGER NOT NULL DEFAULT 60",
+                  # ostatni skan wystartowany przez harmonogram - scheduler wznawia TEN SAM, gdy jest 'paused_window'
+                  "last_scan_id INTEGER"),
+}
 
 
-# Kolumny dodane do `scans` już po pierwszym wydaniu - CREATE TABLE IF NOT EXISTS nie
-# doda ich do istniejącej bazy, więc trzeba ALTER TABLE (SQLite nie ma "ADD COLUMN IF
-# NOT EXISTS" - łapiemy błąd "duplicate column" na bazach, które już je mają).
-_SCANS_MIGRATIONS = (
-    "target_hash TEXT NOT NULL DEFAULT ''",
-    "hosts_total INTEGER NOT NULL DEFAULT 0",
-    "hosts_done INTEGER NOT NULL DEFAULT 0",
-    "duration_s REAL",
-    "stop_requested INTEGER NOT NULL DEFAULT 0",
-    # Stan potrzebny do prawdziwego wznowienia po oknie czasowym (nie licząc szyfrowanych
-    # pól jak log/detail - to tylko adresy/mapowania celu, ta sama jawność co scan_targets):
-    # {"ip_of": {...}, "root_id": {...}, "pending_ips": [...], "done_offset": N}. NULL = scan
-    # nieprzerwany oknem czasowym (albo już wznowiony do końca) - nic do kontynuowania.
-    "checkpoint TEXT",
-)
-_SCHEDULES_MIGRATIONS = (
-    # Wskazuje na ostatni wystartowany przez ten harmonogram skan - scheduler sprawdza jego
-    # status: jeśli 'paused_window', wznawia TEN SAM skan (kontynuacja checkpointu) zamiast
-    # zaczynać nowy od zera.
-    "last_scan_id INTEGER",
-)
+def _m2_legacy_columns(c):
+    for table, coldefs in _LEGACY_COLUMNS.items():
+        have = _columns(c, table)
+        for coldef in coldefs:
+            if coldef.split()[0] not in have:
+                c.execute(f"ALTER TABLE {table} ADD COLUMN {coldef}")
 
 
-def _add_column(c, table, coldef):
-    try:
-        c.execute(f"ALTER TABLE {table} ADD COLUMN {coldef}")
-    except sqlite3.OperationalError as e:
-        if "duplicate column" not in str(e):
-            raise
+def _m3_indexes(c):
+    c.executescript("""
+CREATE INDEX IF NOT EXISTS findings_scan ON findings(scan_id);
+CREATE INDEX IF NOT EXISTS scans_target_status ON scans(target, status);
+CREATE INDEX IF NOT EXISTS idx_scans_target_hash ON scans(target_hash);
+CREATE INDEX IF NOT EXISTS alerts_unread ON alerts(read);
+""")
+
+
+MIGRATIONS = [_m1_base, _m2_legacy_columns, _m3_indexes]
+SCHEMA_VERSION = len(MIGRATIONS)
+
+
+def schema_version():
+    with conn() as c:
+        return c.execute("PRAGMA user_version").fetchone()[0]
 
 
 def init():
-    os.makedirs(os.path.dirname(DB_PATH), exist_ok=True)
+    """Tworzy/podnosi schemat do SCHEMA_VERSION. Odmawia pracy na bazie z nowszej wersji aplikacji."""
+    path = config.load().db_path
+    os.makedirs(os.path.dirname(path) or ".", exist_ok=True)
     with conn() as c:
         c.execute("PRAGMA journal_mode=WAL")
-        c.executescript(SCHEMA)
-        for coldef in _SCANS_MIGRATIONS:
-            _add_column(c, "scans", coldef)
-        for coldef in _SCHEDULES_MIGRATIONS:
-            _add_column(c, "schedules", coldef)
-        c.execute("CREATE INDEX IF NOT EXISTS idx_scans_target_hash ON scans(target_hash)")
-        c.execute("UPDATE scans SET status='failed', stage='przerwany (restart)' "
-                  "WHERE status IN ('queued','running')")
+        current = c.execute("PRAGMA user_version").fetchone()[0]
+        if current > SCHEMA_VERSION:
+            raise RuntimeError(f"Baza ma schemat v{current}, a aplikacja zna najwyżej v{SCHEMA_VERSION}. "
+                               "Uruchom nowszą wersję aplikacji albo przywróć kopię bazy.")
+        for n, migrate in enumerate(MIGRATIONS[current:], start=current + 1):
+            migrate(c)
+            c.execute(f"PRAGMA user_version = {n}")
+            c.commit()
+    try:
+        os.chmod(path, 0o600)  # w bazie leżą klucze API i hasze haseł
+    except OSError:
+        pass

@@ -1,0 +1,19 @@
+{
+  "severities": [
+    {"id": "critical", "label": "Krytyczne", "when": "Napraw natychmiast", "weight": 40},
+    {"id": "high", "label": "Wysokie", "when": "Napraw w tym tygodniu", "weight": 20},
+    {"id": "medium", "label": "Średnie", "when": "Zaplanuj naprawę", "weight": 8},
+    {"id": "low", "label": "Niskie", "when": "Popraw przy okazji", "weight": 3},
+    {"id": "info", "label": "Informacja", "when": "Do wiadomości", "weight": 0}
+  ],
+  "urgent": ["critical", "high"],
+  "intervals": {"24": "codziennie", "168": "co tydzień", "720": "co miesiąc"},
+  "default_interval": 168,
+  "verdict": {
+    "bad_score": 60,
+    "warn_score": 30,
+    "bad": {"title": "Wymaga pilnej uwagi", "text": "Znaleziono poważne problemy. Przekaż raport informatykowi jeszcze dziś."},
+    "warn": {"title": "Wymaga poprawek", "text": "Znaleziono problemy, które warto naprawić w najbliższym czasie."},
+    "good": {"title": "Nie znaleziono poważnych problemów", "text": "Strona wygląda dobrze pod kątem tego, co sprawdza to narzędzie. To nie zastępuje pełnego audytu bezpieczeństwa."}
+  }
+}

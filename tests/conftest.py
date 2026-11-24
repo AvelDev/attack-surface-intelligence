@@ -11,7 +11,7 @@ from asi import db, scanner
 
 @pytest.fixture
 def temp_db(tmp_path, monkeypatch):
-    monkeypatch.setattr(db, "DB_PATH", str(tmp_path / "test_asi.db"))
+    monkeypatch.setenv("ASI_DB", str(tmp_path / "test_asi.db"))
     db.init()
     return db
 

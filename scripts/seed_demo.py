@@ -15,7 +15,9 @@ import sys
 import time
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-from asi import crypto, db  # noqa: E402
+from asi import config, crypto, db  # noqa: E402
+
+DB_PATH = config.load().db_path
 
 DAY = 86400
 rnd = random.Random(20261121)
@@ -167,17 +169,17 @@ def seed_domains(c, now):
 
 
 def main():
-    if os.path.exists(db.DB_PATH) and "--force" not in sys.argv:
-        sys.exit(f"{db.DB_PATH} już istnieje - użyj --force, żeby nadpisać (to baza demo, nie produkcyjna).")
-    if os.path.exists(db.DB_PATH):
-        os.remove(db.DB_PATH)
+    if os.path.exists(DB_PATH) and "--force" not in sys.argv:
+        sys.exit(f"{DB_PATH} już istnieje - użyj --force, żeby nadpisać (to baza demo, nie produkcyjna).")
+    if os.path.exists(DB_PATH):
+        os.remove(DB_PATH)
     db.init()
     now = time.time()
     with db.conn() as c:
         seed_domains(c, now)
         seed_big(c, now)
         seed_lab(c, now)
-    print(f"Zapisano syntetyczne dane demo do {db.DB_PATH}")
+    print(f"Zapisano syntetyczne dane demo do {DB_PATH}")
 
 
 if __name__ == "__main__":
