@@ -1,0 +1,12 @@
+{
+  "version": 2,
+  "skills": {
+    "pragmatic-programmer": {
+      "source": "wondelai/skills",
+      "commit": "c5265583b1a9740f06831e1d3e89b35bba3eb430",
+      "sourceType": "github",
+      "skillPath": "pragmatic-programmer/SKILL.md",
+      "computedHash": "5fb5beb3a3e0405ba99092848e1090d88611e685b580a7102c538e1bd6be1e4b"
+    }
+  }
+}
