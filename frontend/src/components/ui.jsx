@@ -118,6 +118,11 @@ export function Field({ label, hint, children, className = "", action }) {
   );
 }
 
+/** Komenda z łamaniem między argumentami, nigdy w środku flagi. */
+export function Command({ text, children }) {
+  return <code className="cmd">{text.split(" ").map((arg, i) => <span key={i}>{arg} </span>)}{children}</code>;
+}
+
 export function Check({ checked, onChange, children, disabled }) {
   return (
     <label className="check">

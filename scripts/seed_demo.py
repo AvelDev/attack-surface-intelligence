@@ -77,7 +77,7 @@ def seed_lab(c, now):
                                                      ["DVWA", "PHP/7.0.30", "Apache/2.4.25"]))
             ports[3001] = ("http", "Gitea 1.22.3", ("Gitea: Git with a cup of tea", ["Gitea", "Go"]))
         for p, (svc, ver, web) in ports.items():
-            pid = asset(c, sid, "port", f"{ip}:{p}", {"port": p, "service": svc, "version": ver})
+            asset(c, sid, "port", f"{ip}:{p}", {"port": p, "service": svc, "version": ver})
             if web:
                 title, tech = web
                 wid = asset(c, sid, "web", f"http://{ip}:{p}",

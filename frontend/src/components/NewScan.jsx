@@ -3,6 +3,7 @@ import { FileUp, HelpCircle } from "lucide-react";
 import { api } from "../api.js";
 import { useI18n } from "../i18n.jsx";
 import { Dialog, Field, Check } from "./ui.jsx";
+import NmapOptions, { FAST, fillOptions, lastProfile, useNmapInfo } from "./NmapOptions.jsx";
 
 const RATES = [100, 300, 1000];
 const WINDOWS = [0, 15, 60, 120];
@@ -17,6 +18,15 @@ export default function NewScan({ onClose, onStarted, onAuthLost, flash, initial
   const [gvm, setGvm] = useState(initial?.gvm ?? false);
   const [deep, setDeep] = useState(initial?.deep ?? false);
   const [intel, setIntel] = useState(initial?.intel ?? false);
+  const info = useNmapInfo();
+  const [nmap, setNmap] = useState(null);
+  // Powtarzany skan przychodzi ze swoimi opcjami, nowy z ostatnio wybranym profilem.
+  useEffect(() => {
+    if (!info?.installed) return;
+    const last = lastProfile();
+    setNmap("nmap" in (initial || {}) ? fillOptions(info, initial.nmap)
+      : last === FAST ? null : info.profiles.find((p) => p.profile === last) || info.profiles[0]);
+  }, [info, initial]);
   const [auth, setAuth] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
@@ -61,7 +71,7 @@ export default function NewScan({ onClose, onStarted, onAuthLost, flash, initial
     if (!auth) return setError(t("ns.errAuth"));
     setBusy(true);
     try {
-      done(await api.startScan({ targets: list, authorized: true, nuclei, gvm, deep, intel, rate_limit: rate, time_window_mins: win || null }));
+      done(await api.startScan({ targets: list, authorized: true, nuclei, gvm, deep, intel, rate_limit: rate, time_window_mins: win || null, nmap }));
     } catch (err) { fail(err); }
   };
 
@@ -76,6 +86,11 @@ export default function NewScan({ onClose, onStarted, onAuthLost, flash, initial
     fd.append("authorized", "true");
     fd.append("nuclei", nuclei ? "true" : "false");
     fd.append("gvm", gvm ? "true" : "false");
+    fd.append("deep", deep ? "true" : "false");
+    fd.append("intel", intel ? "true" : "false");
+    fd.append("rate_limit", rate);
+    if (win) fd.append("time_window_mins", win);
+    if (nmap) fd.append("nmap", JSON.stringify(nmap));
     setBusy(true);
     try { done(await api.importTargets(fd)); } catch (err) { fail(err); }
   };
@@ -84,13 +99,13 @@ export default function NewScan({ onClose, onStarted, onAuthLost, flash, initial
     <Dialog id="ns" title={t("ns.title")} onClose={onClose} wide
             footer={
               <>
-                <button type="button" className="btn" onClick={() => fileRef.current.click()} disabled={busy}>
+                <button type="button" className="btn" onClick={() => fileRef.current.click()} disabled={busy || !info}>
                   <FileUp size={14} aria-hidden="true" /> {t("ns.import")}
                 </button>
                 <input ref={fileRef} type="file" accept=".csv,.json,.txt" hidden onChange={onFile} />
                 <span className="dlg-sp" />
                 <button type="button" className="btn" onClick={onClose}>{t("ui.cancel")}</button>
-                <button type="submit" form="ns-form" className="btn btn-primary" disabled={busy}>
+                <button type="submit" form="ns-form" className="btn btn-primary" disabled={busy || !info}>
                   {busy ? t("ns.starting") : list.length > 1 ? t("ns.startN", { n: list.length }) : t("ns.start")}
                 </button>
               </>
@@ -115,6 +130,7 @@ export default function NewScan({ onClose, onStarted, onAuthLost, flash, initial
             {WINDOWS.map((w) => <option key={w} value={w}>{w ? t("ns.windowN", { n: w }) : t("ns.windowNone")}</option>)}
           </select>
         </Field>
+        <NmapOptions info={info} value={nmap} onChange={setNmap} rate={rate} intel={intel} />
         <fieldset className="span-2 fs">
           <legend>{t("ns.depth")}</legend>
           <Check checked={nuclei} onChange={setNuclei} disabled={!nucleiOk}>

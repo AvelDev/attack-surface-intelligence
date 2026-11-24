@@ -57,6 +57,18 @@ rozwinięciem CIDR), `ASI_MAX_WORKERS` (domyślnie 4 - ile skanów/jobów naraz 
 dawnej kolejki po jednym), `ASI_SCAN_RATE` (domyślnie 300 - pakiety/s dla naabu/nmap,
 nadpisywalne per-skan przez pole `rate_limit` w żądaniu, 1-10000).
 
+### Nmap
+W formularzu skanu i harmonogramie wybierasz profil: szybki (samo naabu), usługi i wersje, wykrywanie hostów, pełny,
+UDP, podatności (NSE), ostrożny, reguły zapory albo własny zestaw opcji. Formularz pokazuje dokładną komendę przed
+startem. Wyniki (system, wersje, CPE, skrypty NSE, trasa, stany portów) są w zakładce „Nmap” skanu; surowy XML można
+pobrać, a plik `nmap -oX` zaimportować przyciskiem na liście przebiegów.
+
+- `ASI_NMAP_INTRUSIVE=1` - dopuszcza skrypty NSE z kategorii `brute`, `exploit`, `dos`, `fuzzer`, i to tylko dla roli `admin`.
+- Kategoria `external` działa tylko z włączonym wywiadem zewnętrznym, `broadcast` nigdy (wychodzi poza cele objęte zgodą).
+- `ASI_NMAP_TIMEOUT` (sekundy, domyślnie 14400) - twardy limit jednego uruchomienia.
+- Bez uprawnień do surowych pakietów (root albo `CAP_NET_RAW`) SYN zamienia się na connect, a `-O`, `--traceroute`,
+  UDP i pozostałe techniki są niedostępne. Poza zakresem: IPv6 oraz tryby angażujące osoby trzecie (`-D`, `-S`, `-sI`, `-b`).
+
 ### RBAC i szyfrowanie
 Przy pierwszym uruchomieniu powstaje użytkownik `admin` z losowym hasłem wypisanym raz w logu.
 4 role: `read`, `read_modify`, `add_remove_modify`, `admin`. `ASI_COOKIE_SECURE=1` - ustaw, gdy

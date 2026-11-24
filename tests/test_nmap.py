@@ -112,6 +112,12 @@ def test_unprivileged_server_degrades_or_refuses():
         command.adapt(options.PROFILES["udp"], command.Capabilities())
 
 
+def test_min_time_includes_gaps_imposed_by_timing():
+    assert command.min_seconds(opts(top_ports=1000), 500) == 2
+    assert command.min_seconds(opts(top_ports=1000, timing=1), 500) == 15000
+    assert command.min_seconds(opts(top_ports=1000, scan_delay_ms=100), 500) == 100
+
+
 def test_heavy_scan_gets_small_batches():
     assert command.start_batch(options.PROFILES["service"]) == 200
     assert command.start_batch(options.PROFILES["full"]) == 4

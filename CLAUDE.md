@@ -27,6 +27,9 @@ subfinder → dnsx → naabu/nmap → httpx → nuclei. Szczegóły: `README.md`
 ## Struktura
 
 - `asi/` - backend (api/, scan/, repo/, auth, db, scheduler, report, defectdojo, gvm_scan, ...)
+- `asi/nmap/` - nmap bez wejścia/wyjścia: `options` (model i profile), `policy` (bramka NSE), `command`, `parser`, `rules`
+  (NSE → ustalenia, tabela); uruchamianie w `asi/scan/nmap_scan.py`, API w `asi/api/nmap.py`. Nowa opcja nmapa = pole
+  w `options` + flaga w `command` + kontrolka w `frontend/src/components/NmapOptions.jsx`
 - `frontend/` - panel React (Vite); serwer podaje `frontend/dist`, bez niego stary UI z `static/` pod `/legacy`
 - `tests/` - pytest; `scripts/` - install_tools, seed_demo, docker_smoke_test; `deploy/`, `lab/` - infrastruktura/lab
 - `docs/` - dokumentacja i prezentacje
@@ -35,4 +38,6 @@ subfinder → dnsx → naabu/nmap → httpx → nuclei. Szczegóły: `README.md`
 
 - Język: komunikacja, komentarze i dokumentacja po polsku (z diakrytykami); identyfikatory kodu po angielsku.
 - Nie commituj sekretów ani plików lokalnych (`.env`, `*.db`, `data/`, `pass.txt`).
+- Każdy tekst panelu ma klucz PL i EN w `frontend/src/i18n.jsx`; tytuły i zalecenia własnych ustaleń także w `FINDING_EN`.
+- `ASI_NMAP_INTRUSIVE=1` (tylko admin) odblokowuje NSE brute/exploit/dos/fuzzer; `ASI_NMAP_TIMEOUT` - limit uruchomienia [s].
 - Skanuj wyłącznie cele, na które jest zgoda (`ASI_ALLOWED_TARGETS`).

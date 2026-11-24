@@ -14,7 +14,7 @@ TIMEOUT_S = int(os.environ.get("ASI_NMAP_TIMEOUT", "14400"))  # twardy limit jed
 STATS_EVERY = "10s"
 PROGRESS = re.compile(r"About ([\d.]+)% done")
 # Wiersze, które operator ma zobaczyć w dzienniku; reszta tekstu nmapa dubluje XML.
-NOTABLE = re.compile(r"QUITTING|WARNING|Warning|ERROR|Failed|failed|Skipping host|giving up", re.I)
+NOTABLE = re.compile(r"^(?!\||SF)(?:.*QUITTING|warning|error|failed|skipping host|.*giving up|.*requires root)", re.I)
 HOST_FIELDS = ("state", "reason", "hostnames", "mac", "vendor", "os", "uptime_s", "distance", "trace", "scripts", "states", "timed_out")
 
 

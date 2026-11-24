@@ -12,7 +12,7 @@ function hostOf(item) {
   const m = v.match(/^[a-z]+:\/\/([^/:]+)(?::(\d+))?/i);
   if (m) return { host: m[1], port: m[2] || (v.startsWith("https") ? "443" : "80") };
   const p = v.lastIndexOf(":");
-  if (p > 0 && /^\d+$/.test(v.slice(p + 1))) return { host: v.slice(0, p), port: v.slice(p + 1) };
+  if (p > 0 && /^\d+(\/\w+)?$/.test(v.slice(p + 1))) return { host: v.slice(0, p), port: v.slice(p + 1) };
   return { host: v, port: null };
 }
 

@@ -4,6 +4,7 @@ import { api, can } from "../api.js";
 import { useI18n } from "../i18n.jsx";
 import Frame from "../components/Frame.jsx";
 import Page from "../components/Page.jsx";
+import { FAST, ProfileSelect, lastProfile, profileName, useNmapInfo } from "../components/NmapOptions.jsx";
 import { Check, Confirm, Field, LoadState, useResource, useToast } from "../components/ui.jsx";
 
 const INTERVALS = [6, 12, 24, 168];
@@ -73,6 +74,7 @@ export default function Schedule({ user, shell, onAuthLost }) {
                         <span className="mono">{o.rate_limit || 300} pps</span>
                         {o.nuclei && <span className="chip mono">nuclei</span>}
                         {o.gvm && <span className="chip mono">gvm</span>}
+                        {o.nmap && <span className="chip"><span className="mono">nmap</span> {profileName(t, o.nmap).toLowerCase()}</span>}
                       </td>
                       <td className="nowrap">{r.last_run ? ago(r.last_run) : <span className="quiet">{t("d.never")}</span>}</td>
                       <td className="nowrap">
@@ -114,6 +116,12 @@ function SchedForm({ onAdd }) {
   const [win, setWin] = useState(60);
   const [rate, setRate] = useState(300);
   const [nuclei, setNuclei] = useState(true);
+  const info = useNmapInfo();
+  const [nmap, setNmap] = useState(null);
+  useEffect(() => {
+    const last = lastProfile();
+    if (info?.installed && last !== FAST) setNmap(info.profiles.find((p) => p.profile === last) || info.profiles[0]);
+  }, [info]);
   const [busy, setBusy] = useState(false);
   // Ten sam problem co w NewScan.jsx: zaznaczony checkbox dla narzędzia, którego nie ma
   // na serwerze, nic nie da - lepiej od razu go wyłączyć i powiedzieć dlaczego.
@@ -130,7 +138,7 @@ function SchedForm({ onAdd }) {
     e.preventDefault();
     if (!target.trim()) return;
     setBusy(true);
-    if (await onAdd({ target: target.trim(), interval_hours: interval, time_window_mins: win, rate_limit: rate, nuclei })) setTarget("");
+    if (await onAdd({ target: target.trim(), interval_hours: interval, time_window_mins: win, rate_limit: rate, nuclei, nmap })) setTarget("");
     setBusy(false);
   };
 
@@ -154,6 +162,7 @@ function SchedForm({ onAdd }) {
           {RATES.map((r) => <option key={r} value={r}>{t(`ns.rate${r}`)}</option>)}
         </select>
       </Field>
+      <ProfileSelect info={info} value={nmap} onChange={setNmap} custom={false} />
       <div className="span-2">
         <Check checked={nuclei} onChange={setNuclei} disabled={!nucleiOk}>
           {t("ns.nuclei")}{!nucleiOk && ` — ${t("ns.unavailable")}`}

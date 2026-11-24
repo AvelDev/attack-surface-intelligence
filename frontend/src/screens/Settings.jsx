@@ -222,6 +222,7 @@ function ToolTable({ tools }) {
             {ext.includes(k) ? (v.installed ? t("tools.reachable") : t("tools.off")) : v.installed ? t("tools.installed") : t("tools.fallback")}
           </span>
           {k === "naabu" && v.installed && <small className="d-sub">{v.syn ? t("tools.syn") : t("tools.connect")}</small>}
+          {k === "nmap" && v.installed && <small className="d-sub">{v.version} · {v.raw ? t("tools.syn") : t("tools.connect")}</small>}
         </td>
         <td className="mono quiet f-asset">{v.path || "—"}</td>
       </tr>

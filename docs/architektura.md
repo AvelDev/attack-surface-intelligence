@@ -54,6 +54,11 @@ własna sieć) zakończony ze 556+ ustaleniami, score 100/100.
    widoczny, aktualizowany na żywo postęp (`scans.hosts_done/hosts_total`) i czas
    trwania zamiast jednej, nieprzerywalnej operacji na tysiącach hostów. Limit
    pakietów/s konfigurowalny per-skan (`rate_limit`, 1-10000).
+   Z wybranym profilem nmap (`opts["nmap"]`) silnikiem jest nmap, opcjonalnie po wstępnym skanie naabu: naabu znajduje
+   porty, nmap bada tylko je. Opcje to zamknięty model pydantic (`asi/nmap/options.py`), a nie dowolne argumenty; skrypty
+   NSE przechodzą przez `asi/nmap/policy.py` przy zapisie i ponownie przy uruchomieniu. Proces jest przerywany od razu po
+   zatrzymaniu skanu lub końcu okna, a kompletne hosty z urwanego XML zostają. Surowy XML leży skompresowany i zaszyfrowany
+   w `nmap_runs`. Porty inne niż TCP mają wartość `ip:port/proto`.
    Każdy znaleziony port przechodzi dodatkową weryfikację (`verify_ports`) -
    odrzuca "fałszywe" porty, gdzie TCP handshake się udaje, ale usługa nie
    odpowiada (typowe dla pośredników/firewalli zwracających RST na wszystko).

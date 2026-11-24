@@ -110,6 +110,10 @@ def naabu_ports(opts):
     return out + (["-exclude-ports", opts.exclude_ports] if opts.exclude_ports else [])
 
 
+# Szablony -T0..-T2 wysyłają sondy pojedynczo, w stałych odstępach (dokumentacja nmapa, "Timing and Performance").
+TIMING_GAP_S = {0: 300, 1: 15, 2: 0.4}
+
+
 def probes_per_host(opts):
     """Ile sond (bez ponowień) przypada na host - do szacowania czasu i wielkości paczki."""
     if opts.mode == "hosts":
@@ -117,6 +121,12 @@ def probes_per_host(opts):
     everything = MAX_PROTOCOL + 1 if "protocol" in opts.techniques else MAX_PORT
     ports = {"top": opts.top_ports, "default": NMAP_DEFAULT_PORTS, "range": count_ports(opts.ports), "all": everything}[opts.port_mode]
     return min(ports, everything) * len(opts.techniques)
+
+
+def min_seconds(opts, rate):
+    """Dolna granica czasu na host: limit tempa oraz odstępy między sondami, które narzuca szablon -T albo --scan-delay."""
+    gap = max(TIMING_GAP_S.get(opts.timing, 0), (opts.scan_delay_ms or 0) / 1000)
+    return probes_per_host(opts) * max(1 / rate, gap)
 
 
 def start_batch(opts):

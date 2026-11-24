@@ -51,4 +51,4 @@ def preview(req: PreviewReq, user: dict = Depends(auth.require("add_remove_modif
         cmd = ["nmap", *command.build(opts, caps, req.rate_limit, only_ports=[])]
         cmd[cmd.index("-p") + 1] = "<porty z naabu>"
     return {"command": nmap_scan.display(cmd), "prescan": " ".join(["naabu", *command.naabu_ports(opts), "-rate", str(req.rate_limit)]) if prescan else None,
-            "profile": opts.profile, "dropped": dropped, "probes": probes, "min_seconds": round(probes / req.rate_limit, 1)}
+            "profile": opts.profile, "dropped": dropped, "probes": probes, "min_seconds": round(command.min_seconds(opts, req.rate_limit), 1)}

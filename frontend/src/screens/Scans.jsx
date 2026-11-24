@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { Plus, Search, FileText, Download, Upload, RotateCcw, Trash2, Pause } from "lucide-react";
+import { Plus, Search, FileText, FileUp, Download, Upload, RotateCcw, Trash2, Pause } from "lucide-react";
 import { api, can, isRunning, SEVS } from "../api.js";
 import { useI18n } from "../i18n.jsx";
 import { go, href } from "../router.js";
@@ -7,6 +7,8 @@ import Frame from "../components/Frame.jsx";
 import Page from "../components/Page.jsx";
 import NewScan from "../components/NewScan.jsx";
 import KindIcon from "../components/KindIcon.jsx";
+import { profileName } from "../components/NmapOptions.jsx";
+import NmapResults, { hasNmap } from "../components/NmapResults.jsx";
 import { FindingsTable, FindingDialog } from "../components/Findings.jsx";
 import { Confirm, Empty, LoadState, ScanState, Sev, useResource, useToast } from "../components/ui.jsx";
 
@@ -30,6 +32,7 @@ export default function Scans({ user, shell, onAuthLost, scanId }) {
   const { toast, flash, clear } = useToast();
   const [adding, setAdding] = useState(null);
   const [q, setQ] = useState("");
+  const importRef = useRef(null);
   const list = useResource(api.scans, onAuthLost, []);
   const scans = list.data || [];
   const anyRunning = scans.some((s) => isRunning(s.status));
@@ -39,6 +42,23 @@ export default function Scans({ user, shell, onAuthLost, scanId }) {
     const h = setInterval(() => document.visibilityState === "visible" && list.load(), anyRunning ? 4000 : 30000);
     return () => clearInterval(h);
   }, [anyRunning, list.load]);
+
+  const onImport = async (e) => {
+    const file = e.target.files[0];
+    e.target.value = "";
+    if (!file) return;
+    const form = new FormData();
+    form.append("file", file);
+    try {
+      const r = await api.importResults(form);
+      flash(t("s.imported", { a: n(r.assets), f: n(r.findings) }), "ok");
+      list.load();
+      go("scans", r.id);
+    } catch (err) {
+      onAuthLost(err);
+      flash(t("err.action", { msg: err.message }), "err");
+    }
+  };
 
   // bez wybranego skanu: pokaż najnowszy, żeby ekran nigdy nie był pusty
   const selected = scanId ? +scanId : scans[0]?.id ?? null;
@@ -53,9 +73,15 @@ export default function Scans({ user, shell, onAuthLost, scanId }) {
           refreshing={list.loading} onRefresh={list.load} toast={toast} onToastClose={clear} className="scans">
       <Frame tag="A" id="s-list" className="s-list" title={t("s.list")} meta={n(scans.length)}
              actions={canAdd && (
-               <button type="button" className="btn btn-primary btn-sm" onClick={() => setAdding({})}>
-                 <Plus size={13} aria-hidden="true" /> {t("s.new")}
-               </button>
+               <div className="s-acts">
+                 <button type="button" className="icon-btn" aria-label={t("s.importHint")} title={t("s.importHint")} onClick={() => importRef.current.click()}>
+                   <FileUp size={15} aria-hidden="true" />
+                 </button>
+                 <input ref={importRef} type="file" accept=".json,.csv,.xml" hidden aria-label={t("s.importHint")} onChange={onImport} />
+                 <button type="button" className="btn btn-primary btn-sm" onClick={() => setAdding({})}>
+                   <Plus size={13} aria-hidden="true" /> {t("s.new")}
+                 </button>
+               </div>
              )}>
         <label className="search">
           <Search size={14} aria-hidden="true" />
@@ -162,12 +188,13 @@ function ScanDetail({ id, user, onAuthLost, flash, onChanged, onRepeat }) {
 
   const repeat = async () => {
     const targets = await act(() => api.scanTargets(s.id));
-    if (targets) onRepeat({ targets: targets.join("\n"), rate: opts.rate_limit || 300, window: opts.time_window_mins || 0, nuclei: !!opts.nuclei, gvm: !!opts.gvm });
+    if (targets) onRepeat({ targets: targets.join("\n"), rate: opts.rate_limit || 300, window: opts.time_window_mins || 0, nuclei: !!opts.nuclei, gvm: !!opts.gvm, deep: !!opts.deep, intel: !!opts.intel, nmap: opts.nmap || null });
   };
 
   const tabs = [
     ["findings", t("s.tabFindings"), d.findings.length],
     ["assets", t("s.tabAssets"), d.assets.length],
+    ...(hasNmap(d, opts) ? [["nmap", t("nr.tab"), null]] : []),
     ["diff", t("s.tabDiff"), d.diff ? d.diff.new_assets.length + d.diff.removed_assets.length + d.diff.flapping_assets.length : null],
     ["log", t("s.tabLog"), null],
   ];
@@ -215,7 +242,7 @@ function ScanDetail({ id, user, onAuthLost, flash, onChanged, onRepeat }) {
         <div><dt>{t("d.hosts")}</dt><dd className="mono">{s.hosts_total ? `${n(s.hosts_done || 0)} / ${n(s.hosts_total)}` : "—"}</dd></div>
         <div><dt>{t("s.started")}</dt><dd className="mono">{date(s.created)}</dd></div>
         <div><dt>{t("s.duration")}</dt><dd className="mono">{s.duration_s ? dur(s.duration_s) : running ? dur(Date.now() / 1000 - s.created) : "—"}</dd></div>
-        <div><dt>{t("s.opts")}</dt><dd className="mono">{opts.rate_limit || 300} pps{opts.time_window_mins ? ` · ${opts.time_window_mins} min` : ""}{opts.nuclei ? " · nuclei" : ""}{opts.gvm ? " · gvm" : ""}</dd></div>
+        <div><dt>{t("s.opts")}</dt><dd className="mono s-opts">{opts.rate_limit || 300} pps{opts.time_window_mins ? ` · ${opts.time_window_mins} min` : ""}{opts.nuclei ? " · nuclei" : ""}{opts.gvm ? " · gvm" : ""}{opts.nmap && ` · nmap: ${profileName(t, opts.nmap).toLowerCase()}`}</dd></div>
       </dl>
 
       <div className="s-band">
@@ -254,6 +281,7 @@ function ScanDetail({ id, user, onAuthLost, flash, onChanged, onRepeat }) {
           <FindingsTable findings={d.findings} canEdit={can(user, "read_modify")} onEdit={setEditing} />
         )}
         {tab === "assets" && <Assets assets={d.assets} />}
+        {tab === "nmap" && <NmapResults scanId={s.id} assets={d.assets} running={running} onAuthLost={onAuthLost} />}
         {tab === "diff" && <Diff diff={d.diff} running={running} />}
         {tab === "log" && <Log text={s.log} live={running} />}
       </div>
@@ -273,7 +301,8 @@ const KINDS = ["domain", "subdomain", "ip", "port", "web"];
 function assetInfo(a, t) {
   const x = a.data || {};
   if (a.kind === "web") return [x.status && `HTTP ${x.status}`, x.title, x.server, (x.tech || []).join(", ")].filter(Boolean).join(" · ");
-  if (a.kind === "port") return [x.service, x.version, x.banner && `${t("s.banner")}: ${x.banner}`].filter(Boolean).join(" · ");
+  if (a.kind === "port") return [x.service, x.version, x.info, x.banner && `${t("s.banner")}: ${x.banner}`].filter(Boolean).join(" · ");
+  if (a.kind === "ip") return [x.hostnames?.[0], x.os?.[0]?.name, x.mac && [x.mac, x.vendor].filter(Boolean).join(" ")].filter(Boolean).join(" · ");
   return "";
 }
 
