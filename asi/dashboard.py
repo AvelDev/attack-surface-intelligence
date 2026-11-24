@@ -14,7 +14,7 @@ import time
 from collections import OrderedDict
 from urllib.parse import urlparse
 
-from . import crypto, db, scanner
+from . import config, crypto, db
 
 HISTORY = 10            # ile ostatnich przebiegów zakresu bierzemy pod uwagę (pewność, flapping, historia)
 DETAIL_HOSTS = 16       # do tylu hostów mapa pokazuje porty zamiast płytek /24
@@ -120,7 +120,7 @@ def _block_of(ip):
 def _presence(aid, hist_sets):
     """hist_sets: od najstarszego do najnowszego przebiegu. Zwraca (obecny_w, z_ilu, przejścia)."""
     seq = [aid in s for s in hist_sets]
-    flips = sum(1 for x, y in zip(seq, seq[1:]) if x != y)
+    flips = sum(1 for x, y in zip(seq, seq[1:], strict=False) if x != y)
     return sum(seq), len(seq), flips
 
 
@@ -166,7 +166,7 @@ def build(range_hash=None, scan_id=None, at=None):
         "queue_total": len(queue),
         "map": {"ranges": map_ranges,
                 "detail": sum(m["host_count"] for m in map_ranges) <= DETAIL_HOSTS},
-        "meta": {"rate_default": scanner.DEFAULT_RATE, "encryption": True, "last_pass": last_pass,
+        "meta": {"rate_default": config.load().scan_rate, "encryption": True, "last_pass": last_pass,
                  "running": sum(1 for r in ranges if r["state"]["status"] in ("running", "queued"))},
     }
 
@@ -229,7 +229,7 @@ def _range(c, thash, runs, notes, triage, schedules, now, pick_scan, at=None):
     if len(hist_sets) >= 3:
         universe = set().union(*hist_sets)
         for aid in universe:
-            kind = (cur.get(aid) or (prev or {}).get(aid) or next((h[aid] for h in hist_assets if aid in h)))[0]
+            kind = (cur.get(aid) or (prev or {}).get(aid) or next(h[aid] for h in hist_assets if aid in h))[0]
             if kind not in tracked:
                 continue
             seen, n, flips = _presence(aid, hist_sets)
@@ -360,7 +360,6 @@ def _range(c, thash, runs, notes, triage, schedules, now, pick_scan, at=None):
     change_map = {}
     for aid, kind, detail in changes:
         counts[kind] += 1
-        info = cur.get(aid) or prev.get(aid)
         title = describe(aid)
         if kind == "changed":
             title = "; ".join(f"{d['field']}: {d['old'] or '∅'} → {d['new'] or '∅'}" for d in detail[:2])
@@ -396,7 +395,7 @@ def _range(c, thash, runs, notes, triage, schedules, now, pick_scan, at=None):
     # mapa: hosty (IP) z portami
     hosts = {}
     for src in ([prev] if prev else []) + [cur]:
-        for aid, (kind, value, data) in src.items():
+        for aid, (kind, value, _data) in src.items():
             ip = _ip_of(kind, value)
             if not ip:
                 continue
@@ -439,7 +438,7 @@ def _range(c, thash, runs, notes, triage, schedules, now, pick_scan, at=None):
 
     domains = sorted({v for (k, v, _) in cur.values() if k in ("domain", "subdomain")})
     history = []
-    for prev_s, cur_s, pa, ca in zip(hist_runs, hist_runs[1:], hist_assets, hist_assets[1:]):
+    for _prev_s, cur_s, pa, ca in zip(hist_runs, hist_runs[1:], hist_assets, hist_assets[1:], strict=False):
         n = len({a for a in ca.keys() ^ pa.keys() if (ca.get(a) or pa.get(a))[0] in tracked})
         history.append({"t": cur_s["finished"] or cur_s["created"], "scan_id": cur_s["id"], "changes": n})
 

@@ -18,13 +18,15 @@ w czystym Pythonie ją zapisuje; httpx z ProjectDiscovery w tym PoC jej nie zwra
 """
 import hashlib
 import multiprocessing
+import os
 import re
 import ssl
 import urllib.error
 import urllib.parse
 import urllib.request
 
-from . import db
+from . import db, domain
+from .errors import InvalidInput, NotFound
 
 TYPES = ("header_present", "cookie_name", "html_regex", "footer_version_regex",
          "path_check", "favicon_hash")
@@ -75,6 +77,34 @@ def list_all(enabled_only=True):
     with db.conn() as c:
         q = "SELECT * FROM signatures" + (" WHERE enabled=1" if enabled_only else "") + " ORDER BY id"
         return [dict(r) for r in c.execute(q)]
+
+
+def validate(sig_type, severity):
+    if sig_type not in TYPES:
+        raise InvalidInput(f"Typ musi być jednym z: {', '.join(TYPES)}")
+    if not domain.is_severity(severity):
+        raise InvalidInput("Nieprawidłowa waga.")
+
+
+def create(name, sig_type, pattern, severity, title, fix, enabled):
+    validate(sig_type, severity)
+    with db.conn() as c:
+        c.execute("INSERT INTO signatures(name,type,pattern,severity,title,fix,enabled) VALUES(?,?,?,?,?,?,?)",
+                  (name, sig_type, pattern, severity, title, fix, int(enabled)))
+
+
+def update(sid, name, sig_type, pattern, severity, title, fix, enabled):
+    validate(sig_type, severity)
+    with db.conn() as c:
+        cur = c.execute("UPDATE signatures SET name=?,type=?,pattern=?,severity=?,title=?,fix=?,enabled=? WHERE id=?",
+                        (name, sig_type, pattern, severity, title, fix, int(enabled), sid))
+    if cur.rowcount == 0:
+        raise NotFound("Nie ma takiej sygnatury.")
+
+
+def delete(sid):
+    with db.conn() as c:
+        c.execute("DELETE FROM signatures WHERE id=?", (sid,))
 
 
 def _fetch_path(url, path, timeout=6):

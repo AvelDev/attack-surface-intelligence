@@ -41,6 +41,17 @@ def create_user(username, password, role):
                   (username, h, salt, role, time.time()))
 
 
+def list_users():
+    with db.conn() as c:
+        return [dict(r) for r in c.execute("SELECT id, username, role, created FROM users ORDER BY id")]
+
+
+def delete_user(uid):
+    with db.conn() as c:
+        c.execute("DELETE FROM sessions WHERE user_id=?", (uid,))
+        c.execute("DELETE FROM users WHERE id=?", (uid,))
+
+
 def bootstrap_admin():
     """Przy pierwszym uruchomieniu (brak userów) tworzy admina z losowym hasłem,
     wypisanym raz w logu - analogicznie do procedury ustawiania hasła GVM."""

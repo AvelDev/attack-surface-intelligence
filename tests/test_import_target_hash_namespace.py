@@ -1,43 +1,39 @@
-"""Regresja: zaimportowany skan (POST /api/scans/import-results) nie może zatruć
-baseline diffa realnego celu (asi/main.py, zob. docs/architektura.md §5).
+"""Regresja: zaimportowany skan (POST /api/scans/import-results) nie może zatruć baseline'u porównań realnego zakresu
+(asi/importer.py, zob. docs/architektura.md §5).
 
-target_hash normalnego skanu to goły sha256-hexdigest (64 znaki [0-9a-f]) policzony
-z ROZWIĄZANYCH celów po stronie serwera. target_hash importu ma prefiks "import:" -
-strukturalnie nie może nigdy pokrewnie zrównać się z prawdziwym hashem, bo "i" nie
-jest cyfrą szesnastkową. Ten test nie woła endpointu (to by wymagało DB/HTTP), tylko
-odtwarza obie formuły z main.py i sprawdza niezmiennik, który ma gwarantować separację.
+target_hash normalnego skanu to goły sha256-hexdigest (64 znaki [0-9a-f]) policzony z ROZWIĄZANYCH celów po stronie
+serwera (targets.range_hash). target_hash importu ma prefiks "import:" - strukturalnie nie może nigdy zrównać się
+z prawdziwym hashem, bo "i" nie jest cyfrą szesnastkową.
 """
-import hashlib
+import json
 import re
+
+from asi import importer, targets
+from asi.repo import scans as repo
 
 HEX64 = re.compile(r"^[0-9a-f]{64}$")
 
 
-def real_scan_target_hash(resolved_targets):
-    """Kopia formuły z asi/main.py (ścieżka normalnego /api/scans)."""
-    return hashlib.sha256("\n".join(sorted(resolved_targets)).encode()).hexdigest()
+def _import(payload):
+    sid = importer.import_results(json.dumps(payload), "wyniki.json")["id"]
+    return repo.load(sid)[0]["target_hash"]
 
 
-def imported_scan_target_hash(target):
-    """Kopia formuły z asi/main.py (ścieżka /api/scans/import-results)."""
-    return "import:" + hashlib.sha256(target.encode()).hexdigest()
-
-
-def test_imported_hash_never_collides_with_real_hash_format():
-    imported = imported_scan_target_hash("scanme.nmap.org")
-    assert not HEX64.match(imported), "import: prefix musi wypadać z formatu realnego hasha"
+def test_imported_hash_never_collides_with_real_hash_format(temp_db):
+    imported = _import({"scan": {"target": "scanme.nmap.org"}, "findings": [{"asset": "a", "title": "t"}]})
+    assert imported.startswith("import:")
+    assert not HEX64.match(imported)
 
 
 def test_real_hash_is_always_plain_hex64():
-    real = real_scan_target_hash(["scanme.nmap.org"])
-    assert HEX64.match(real)
+    assert HEX64.match(targets.range_hash(["scanme.nmap.org"]))
+    assert targets.range_hash(["b.example.com", "a.example.com"]) == targets.range_hash(["a.example.com", "b.example.com"])
 
 
-def test_attacker_cannot_forge_import_to_look_like_target():
-    """Nawet gdyby ktoś spreparował plik importu z polem 'target' równym realnemu
-    sha256 celu, wynikowy target_hash i tak dostaje prefiks "import:" - bo liczy go
-    serwer z nazwy celu w pliku, NIE kopiuje go z przesłanego JSON-a."""
-    real = real_scan_target_hash(["scanme.nmap.org"])
-    forged = imported_scan_target_hash(real)  # próba podszycia się pod sam hash jako "target"
+def test_attacker_cannot_forge_import_to_look_like_target(temp_db):
+    """Plik importu z polem 'target' równym realnemu hashowi zakresu i tak dostaje prefiks "import:" - serwer liczy
+    hash z nazwy celu w pliku, a nie kopiuje go z przesłanego JSON-a."""
+    real = targets.range_hash(["scanme.nmap.org"])
+    forged = _import({"scan": {"target": real, "target_hash": real}, "findings": [{"asset": "a", "title": "t"}]})
     assert forged != real
     assert forged.startswith("import:")

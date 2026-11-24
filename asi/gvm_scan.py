@@ -2,7 +2,7 @@
 
 Opcjonalny, głęboki skan podatności - w przeciwieństwie do resztki pipeline'u
 (subfinder/naabu/httpx/nuclei) GVM bywa bardzo wolny (minuty do godzin), więc
-działa w osobnym wątku w tle, poza główną kolejką szybkich skanów (scanner.SEM),
+działa w osobnym wątku w tle, poza główną kolejką szybkich skanów (scan.runner.JOB_SEM),
 i dopisuje swoje ustalenia do tego samego skanu, gdy skończy.
 
 GVM community edition wystawia GMP tylko po unix sockecie (/run/gvmd/gvmd.sock).
@@ -17,7 +17,8 @@ import socket as socketlib
 import threading
 import time
 
-from . import crypto, db
+from . import crypto, db, domain
+from .repo import settings as settings_repo
 
 try:
     # AbstractGvmConnection nie jest re-eksportowana z gvm.connections (tylko Protocol
@@ -59,10 +60,7 @@ def get_config():
     if ENV_HOST and ENV_PASSWORD:
         return ENV_HOST, int(ENV_PORT), ENV_USERNAME, ENV_PASSWORD
     try:
-        with db.conn() as c:
-            rows = {r["key"]: r["value"] for r in c.execute(
-                "SELECT key, value FROM settings WHERE key IN "
-                "('gvm_host','gvm_port','gvm_username','gvm_password')")}
+        rows = settings_repo.get_many(("gvm_host", "gvm_port", "gvm_username", "gvm_password"))
         host = rows.get("gvm_host", "")
         password = crypto.dec(rows["gvm_password"]) if rows.get("gvm_password") else ""
         if host and password:
@@ -71,6 +69,17 @@ def get_config():
     except Exception:  # noqa: BLE001
         pass
     return "", int(ENV_PORT), ENV_USERNAME, ""
+
+
+def save_config(host, port, username, password):
+    """Zapisuje konfigurację z UI (hasło szyfrowane). Walidacja hosta tutaj, nie dopiero przy starcie skanu - szybki,
+    czytelny feedback zamiast cichej porażki później. ValueError dla niepoprawnych danych."""
+    host = host.strip()
+    validate_host(host)
+    if not 1 <= port <= 65535:
+        raise ValueError("Port musi być w zakresie 1-65535.")
+    settings_repo.put_many({"gvm_host": host, "gvm_port": str(port), "gvm_username": username.strip() or "admin",
+                            "gvm_password": crypto.enc(password.strip())})
 
 
 def configured():
@@ -210,10 +219,9 @@ def _run(scan_id, hosts, log):
 
 
 def _bump_score(scan_id):
-    from .scanner import risk_score  # import lokalny - unikamy cyklu modułów na starcie
     with db.conn() as c:
         sevs = [row["severity"] for row in
                 c.execute("SELECT severity FROM findings WHERE scan_id=?", (scan_id,))]
         hosts = c.execute(
             "SELECT COUNT(*) AS n FROM assets WHERE scan_id=? AND kind='ip'", (scan_id,)).fetchone()["n"]
-        c.execute("UPDATE scans SET score=? WHERE id=?", (risk_score(sevs, hosts), scan_id))
+        c.execute("UPDATE scans SET score=? WHERE id=?", (domain.risk_score(sevs, hosts), scan_id))

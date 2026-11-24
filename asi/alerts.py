@@ -47,7 +47,7 @@ def evaluate(score, findings, diff):
 
 def after_scan(sid):
     s, assets, _, findings = history.load(sid)
-    alert = evaluate(s["score"], findings, history.diff(sid, s["target"], assets, findings))
+    alert = evaluate(s["score"], findings, history.diff(sid, s["target_hash"], assets, findings))
     if alert:
         add(sid, s["target"], *alert)
 

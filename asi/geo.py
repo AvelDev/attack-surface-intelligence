@@ -117,4 +117,4 @@ def locate_many(ips):
     uniq = list(dict.fromkeys(ips))
     with ThreadPoolExecutor(min(16, max(1, len(uniq)))) as ex:
         results = list(ex.map(locate_ip, uniq))
-    return dict(zip(uniq, results))
+    return dict(zip(uniq, results, strict=False))

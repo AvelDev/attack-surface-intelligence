@@ -29,6 +29,7 @@ class Config:
     max_workers: int  # ile skanów (jobów) naraz
     scan_rate: int  # pakiety/s dla naabu/nmap (per paczka)
     max_targets: int  # twardy limit celów na skan (rozwinięty CIDR)
+    external_intel: bool  # czy wysyłać publiczne adresy skanowanych celów do zewnętrznych baz (Shodan, NVD, Censys)
 
 
 def load():
@@ -44,4 +45,5 @@ def load():
         max_workers=int(os.environ.get("ASI_MAX_WORKERS", "4")),
         scan_rate=int(os.environ.get("ASI_SCAN_RATE", "300")),
         max_targets=int(os.environ.get("ASI_MAX_TARGETS", "20000")),
+        external_intel=_flag("ASI_EXTERNAL_INTEL"),
     )

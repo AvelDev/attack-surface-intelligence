@@ -14,7 +14,8 @@ import urllib.parse
 import urllib.request
 import uuid
 
-from . import crypto, db
+from . import crypto
+from .repo import settings as settings_repo
 
 ENV_URL = os.environ.get("ASI_DEFECTDOJO_URL", "").rstrip("/")
 ENV_API_KEY = os.environ.get("ASI_DEFECTDOJO_API_KEY", "")
@@ -32,11 +33,9 @@ def get_config():
     if ENV_URL and ENV_API_KEY:
         return ENV_URL, ENV_API_KEY
     try:
-        with db.conn() as c:
-            row_url = c.execute("SELECT value FROM settings WHERE key='defectdojo_url'").fetchone()
-            row_key = c.execute("SELECT value FROM settings WHERE key='defectdojo_api_key'").fetchone()
-        url = (row_url["value"].rstrip("/") if row_url and row_url["value"] else "")
-        key = (crypto.dec(row_key["value"]) if row_key and row_key["value"] else "")
+        stored = settings_repo.get_many(("defectdojo_url", "defectdojo_api_key"))
+        url = stored.get("defectdojo_url", "").rstrip("/")
+        key = crypto.dec(stored["defectdojo_api_key"]) if stored.get("defectdojo_api_key") else ""
         if url and key:
             return url, key
     except Exception:  # noqa: BLE001
@@ -60,6 +59,14 @@ def validate_url(url):
         ip = ipaddress.ip_address(info[4][0])
         if not ip.is_global:
             raise ValueError(f"{p.hostname} wskazuje na adres niepubliczny ({ip}) - niedozwolone.")
+
+
+def save_config(url, api_key):
+    """Zapisuje konfigurację z UI (klucz szyfrowany). Wołający odpowiada za autoryzację (tylko admin) - to ustawienie
+    kieruje, gdzie trafiają ustalenia ze WSZYSTKICH skanów. ValueError dla adresu, który nie przejdzie validate_url."""
+    url = url.strip()
+    validate_url(url)
+    settings_repo.put_many({"defectdojo_url": url, "defectdojo_api_key": crypto.enc(api_key.strip())})
 
 
 def configured():

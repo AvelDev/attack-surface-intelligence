@@ -2,11 +2,12 @@
 
 Wartości kluczy NIGDY nie wracają przez API - interfejs widzi tylko informację "zapisany" i gwiazdki.
 Zmienna środowiskowa ASI_<NAZWA> (np. ASI_NVD_API_KEY) ma pierwszeństwo przed bazą.
-Uwaga: klucze leżą w bazie SQLite jako zwykły tekst - chroń plik bazy (uprawnienia 600) i dostęp do API.
+W bazie leżą zaszyfrowane (crypto.py); mimo to chroń plik bazy (uprawnienia 600) i dostęp do API.
 """
 import os
 import re
 
+from . import crypto
 from .errors import InvalidInput, NotFound
 from .repo import settings as repo
 
@@ -37,7 +38,8 @@ def _env(key):
 def get(key):
     if key not in KEYS:
         return ""
-    return _env(key) or repo.get(key) or ""
+    stored = repo.get(key)
+    return _env(key) or (crypto.dec(stored) if stored else "")
 
 
 def put(key, value):
@@ -48,7 +50,7 @@ def put(key, value):
         return delete(key)
     if not VALUE_RE.match(value):
         raise InvalidInput("Klucz zawiera niedozwolone znaki (spacje, polskie litery) albo ma nieprawidłową długość.")
-    repo.put(key, value)
+    repo.put(key, crypto.enc(value))
 
 
 def delete(key):

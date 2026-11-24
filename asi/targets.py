@@ -1,30 +1,63 @@
-"""Parsowanie i walidacja listy celów (host/CIDR/domena) z formularza, CSV lub JSON.
+"""Walidacja i zakres celów skanowania. Każdy cel przechodzi przez normalize() zanim trafi do narzędzi.
 
-Jeden wpis może rozwinąć się w wiele adresów IP (CIDR) - stąd osobny moduł od
-`scanner.normalize_target`, który waliduje pojedynczy host/domenę. Obsługuje
-skalę wymaganą w zadaniu (>10 000 adresów) z twardym limitem bezpieczeństwa.
-"""
+Jeden wpis (z formularza, CSV lub JSON) może rozwinąć się w wiele adresów IP (CIDR) - robi to expand(), z twardym
+limitem bezpieczeństwa (ASI_MAX_TARGETS), bo skala zadania to ponad 10 000 adresów."""
 import csv
+import hashlib
 import io
 import ipaddress
 import json
-import os
+import re
 
-from . import scanner
+from . import config
+from .errors import InvalidInput
 
-MAX_TARGETS = int(os.environ.get("ASI_MAX_TARGETS", "20000"))
+DOMAIN_RE = re.compile(r"^(?=.{1,253}$)([a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z]{2,63}$")
+
+
+def is_ip(value):
+    try:
+        ipaddress.IPv4Address(value)
+        return True
+    except ValueError:
+        return False
+
+
+def is_domain(value):
+    return bool(DOMAIN_RE.match(value))
+
+
+def in_scope(host, root):
+    """Czy host (opcjonalnie z portem) to root albo jego subdomena."""
+    host = (host or "").lower().split(":")[0]
+    return host == root or host.endswith("." + root)
+
+
+def is_public(ip):
+    return ipaddress.ip_address(ip).is_global
+
+
+def normalize(raw):
+    """Zwraca domenę lub IPv4 w postaci kanonicznej; InvalidInput dla niepoprawnego lub niedozwolonego celu."""
+    t = (raw or "").strip().lower()
+    t = re.sub(r"^[a-z]+://", "", t).split("/")[0].split(":")[0].strip(".")
+    if is_ip(t):
+        return t
+    if not is_domain(t):
+        raise InvalidInput("Nieprawidłowy cel - podaj domenę (example.com) lub adres IPv4.")
+    allowed = config.load().allowed_targets
+    if allowed and not any(in_scope(t, a) for a in allowed):
+        raise InvalidInput("Cel poza dozwoloną listą (ASI_ALLOWED_TARGETS).")
+    return t
 
 
 def _allowed_networks():
     nets = []
-    for a in os.environ.get("ASI_ALLOWED_TARGETS", "").split(","):
-        a = a.strip()
-        if not a:
-            continue
+    for a in config.load().allowed_targets:
         try:
             nets.append(ipaddress.ip_network(a, strict=False))
         except ValueError:
-            pass  # to wpis domenowy - obsługuje go scanner.normalize_target
+            pass  # to wpis domenowy - obsługuje go normalize()
     return nets
 
 
@@ -40,6 +73,7 @@ def expand(raw_items):
     """Zwraca (targets, errors). targets: płaska, zwalidowana, zdeduplikowana lista
     pojedynczych celów (IP lub domen). errors: lista (wpis, powód) dla odrzuconych."""
     out, errors, seen = [], [], set()
+    limit = config.load().max_targets
     for raw in raw_items:
         raw = (raw or "").strip()
         if not raw:
@@ -52,8 +86,8 @@ def expand(raw_items):
             # num_addresses jest O(1) (z długości prefiksu) - sprawdzamy PRZED materializacją
             # listy hostów, inaczej np. "10.0.0.0/8" albo dowolny duży prefiks IPv6 zaalokowałby
             # miliony/miliardy obiektów zanim limit w ogóle zadziała (DoS pojedynczym wpisem).
-            if net.num_addresses > MAX_TARGETS - len(out):
-                errors.append((raw, f"za duży zakres - limit {MAX_TARGETS} celów na skan (ASI_MAX_TARGETS)"))
+            if net.num_addresses > limit - len(out):
+                errors.append((raw, f"za duży zakres - limit {limit} celów na skan (ASI_MAX_TARGETS)"))
                 continue
             hosts = [net.network_address] if net.num_addresses == 1 else list(net.hosts())
             for ip in hosts:
@@ -67,14 +101,14 @@ def expand(raw_items):
                 out.append(ip)
             continue
         try:
-            t = scanner.normalize_target(raw)
-        except ValueError as e:
+            t = normalize(raw)
+        except InvalidInput as e:
             errors.append((raw, str(e)))
             continue
         if t in seen:
             continue
-        if len(out) >= MAX_TARGETS:
-            errors.append((raw, f"przekroczono limit {MAX_TARGETS} celów na skan"))
+        if len(out) >= limit:
+            errors.append((raw, f"przekroczono limit {limit} celów na skan"))
             break
         seen.add(t)
         out.append(t)
@@ -119,3 +153,8 @@ def display_name(raw_items, resolved):
     preview = ", ".join(raw_items[:3])
     more = f" (+{len(raw_items) - 3})" if len(raw_items) > 3 else ""
     return f"{len(resolved)} celów: {preview}{more}"
+
+
+def range_hash(resolved):
+    """Identyfikator zakresu: te same cele w dowolnej kolejności dają ten sam hash (grupuje kolejne przebiegi do porównań)."""
+    return hashlib.sha256("\n".join(sorted(resolved)).encode()).hexdigest()

@@ -1,9 +1,9 @@
-"""Regresja: asi/scanner.py::retry_silent_hosts ponawia TYLKO hosty, które w danym
+"""Regresja: asi/scan/ports.py::retry_silent_hosts ponawia TYLKO hosty, które w danym
 przebiegu nie dały żadnej odpowiedzi - host z portami odrzuconymi przez verify_ports
 (obecny w `answered`) się odezwał, usługa tylko nie potwierdziła się, i nie powinien
 wchodzić w tę ścieżkę drugi raz (docs/architektura.md §2/§9).
 """
-from asi import scanner
+from asi.scan import ports as scanner
 
 
 class _FakeCtx:
