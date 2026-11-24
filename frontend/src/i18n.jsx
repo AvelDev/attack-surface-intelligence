@@ -211,6 +211,19 @@ const pl = {
   "ns.depth": "Głębokość",
   "ns.nuclei": "Znane podatności (nuclei)",
   "ns.gvm": "Pełny audyt OpenVAS/GVM w tle (godziny)",
+  "ns.deep": "Tryb dokładny (więcej źródeł subdomen, crawling, pełny audyt TLS)",
+  "ns.intel": "Wywiad zewnętrzny (Shodan, NVD, Censys, HIBP) - wysyła publiczne adresy celów do tych usług",
+  "s.resume": "Wznów",
+  "s.resumeHint": "Kontynuuje od miejsca przerwania przez okno czasowe, bez skanowania od zera.",
+  "s.resumed": "Skan wznowiony.",
+  "set.intel": "Klucze API źródeł wywiadu",
+  "set.intelHint": "Opcjonalne. Zwiększają limity i dokładność wywiadu zewnętrznego. Klucz jest szyfrowany w bazie i nigdy nie wraca do przeglądarki.",
+  "set.keyFromEnv": "ustawiony zmienną środowiskową",
+  "set.remove": "Usuń",
+  "set.removed": "Klucz usunięty.",
+  "al.title": "Alerty",
+  "al.empty": "Brak alertów.",
+  "al.unread": "{n} nieprzeczytanych",
   "ns.unavailable": "niedostępne na tym serwerze",
   "ns.auth": "Mam zgodę właściciela na skanowanie tych celów.",
   "ns.import": "Import z pliku CSV/JSON",
@@ -614,6 +627,19 @@ const en = {
   "ns.depth": "Depth",
   "ns.nuclei": "Known vulnerabilities (nuclei)",
   "ns.gvm": "Full OpenVAS/GVM audit in the background (hours)",
+  "ns.deep": "Thorough mode (more subdomain sources, crawling, full TLS audit)",
+  "ns.intel": "External intelligence (Shodan, NVD, Censys, HIBP) - sends the targets' public addresses to those services",
+  "s.resume": "Resume",
+  "s.resumeHint": "Continues from where the time window stopped it, instead of rescanning from scratch.",
+  "s.resumed": "Scan resumed.",
+  "set.intel": "Intelligence source API keys",
+  "set.intelHint": "Optional. They raise limits and accuracy of external intelligence. The key is encrypted in the database and never returned to the browser.",
+  "set.keyFromEnv": "set by an environment variable",
+  "set.remove": "Remove",
+  "set.removed": "Key removed.",
+  "al.title": "Alerts",
+  "al.empty": "No alerts.",
+  "al.unread": "{n} unread",
   "ns.unavailable": "not available on this server",
   "ns.auth": "I have the owner's permission to scan these targets.",
   "ns.import": "Import from CSV/JSON",
@@ -806,7 +832,7 @@ const en = {
   "u.desc.admin": "Full access, including accounts and integrations.",
 };
 
-// Tytuły/zalecenia ustaleń źródła "builtin" (RISKY/SEC_HEADERS/ctx.finding w asi/scanner.py)
+// Tytuły/zalecenia ustaleń źródła "builtin" (RISKY/SEC_HEADERS/ctx.finding w asi/scan/)
 // to treść WYNIKU skanu, nie UI - przełącznik języka tłumaczy tylko chrom interfejsu, więc
 // bez tej tabeli zostawałyby po polsku nawet w angielskim UI (stąd zgłoszenie: "finding i
 // remediation się nie tłumaczą"). Zamknięty, wyliczalny zestaw dokładnie tych stringów.

@@ -11,13 +11,14 @@ przeglądarka: panel React (frontend/ → frontend/dist, serwowany pod /)
              + stare UI (static/, vanilla JS, pod /legacy i /command-center)
         │ HTTP + ciasteczko sesji
         ▼
-FastAPI (asi/main.py) ── auth.py (sesje, role) ── crypto.py (Fernet)
+FastAPI (asi/api/*: routery z RBAC; asi/main.py tylko składa aplikację) ── auth.py (sesje, role) ── crypto.py (Fernet)
         │                                              │
         ├─ dashboard.py   (agregat panelu: zmiany, flapping, kolejka, mapa - GET /api/dashboard)
-        ├─ _scheduler_loop() (wątek w tle, harmonogramy cykliczne)
+        ├─ scheduler.py   (wątek w tle: harmonogramy, okno czasowe, wznawianie)
+        ├─ alerts.py / history.py (diff, flapping, trend, alerty + webhook)
         ▼                                              ▼
-  scanner.py (orkiestracja pipeline'u)         SQLite (asi/db.py, WAL)
-        │
+  scan/ (silnik: runner → pipeline → etapy)    SQLite (asi/db.py, WAL, migracje)
+        │                                        ↑ tylko przez asi/repo/*
         ├─ targets.py      (parsowanie/walidacja CIDR/host/domena, limit skali)
         ├─ signatures.py   (silnik własnych sygnatur, SSRF/ReDoS-safe)
         ├─ geo.py          (geolokalizacja IP dla Command Center, nie dla skanu)
@@ -28,12 +29,12 @@ FastAPI (asi/main.py) ── auth.py (sesje, role) ── crypto.py (Fernet)
 ```
 
 Jeden proces, jedna baza SQLite. Skany idą w tle w wątkach (`threading`), liczba
-równoległych skanów ograniczona semaforem `scanner.JOB_SEM` (`ASI_MAX_WORKERS`,
+równoległych skanów ograniczona semaforem `scan.runner.JOB_SEM` (`ASI_MAX_WORKERS`,
 domyślnie 4) zamiast dawnej ścisłej kolejki po jednym - duży skan nie blokuje
 całkowicie reszty systemu. Zweryfikowane na żywo: skan `/20` (4094 adresów,
 własna sieć) zakończony ze 556+ ustaleniami, score 100/100.
 
-## 2. Pipeline discovery (asi/scanner.py: pipeline())
+## 2. Pipeline discovery (asi/scan/pipeline.py: run())
 
 1. **Wejście** (`asi/targets.py`): formularz (tekst, jeden cel na linię/przecinek),
    upload CSV/JSON (`POST /api/scans/import-targets`), albo import gotowych wyników
@@ -156,7 +157,7 @@ Dwa zabezpieczenia dodane po automatycznym security review:
   (`multiprocessing`, kontekst `fork`) z twardym limitem czasu i zabiciem
   procesu po przekroczeniu - wątek z `future.result(timeout=...)` **nie
   wystarcza**, bo zatrzymuje tylko czekanie, a porzucony wątek dalej pali CPU.
-  Ten sam wzorzec ryzyka dotyczy też `scanner.detect_tech()` (CMS/tech
+  Ten sam wzorzec ryzyka dotyczy też `scan.web.detect_tech()` (CMS/tech
   fingerprinting, §2) - tam wzorzec jest nasz własny (nie od użytkownika), ale
   wejście (treść strony) i tak jest kontrolowane przez skanowany host, więc
   regex rozbity jest na ograniczone kroki ({0,N}) zamiast dwóch sąsiadujących
@@ -227,7 +228,7 @@ skryptów/stylów/zasobów spoza explicite dozwolonej listy (CDN z SRI + Google 
 
 ## 6. Bezpieczeństwo skanowania
 
-- Cel zawsze walidowany (`scanner.normalize_target`, `targets.expand`) -
+- Cel zawsze walidowany (`targets.normalize`, `targets.expand`) -
   regex domeny, `ipaddress` dla IP/CIDR, opcjonalna allowlista
   (`ASI_ALLOWED_TARGETS`, obsługuje też zakresy CIDR).
 - Komendy do narzędzi zewnętrznych uruchamiane jako lista argumentów
@@ -267,7 +268,7 @@ w `docker-compose.yml` - realne least-privilege na poziomie Dockera (dokładnie 
 jedna capability, nic więcej - `NET_ADMIN` był tu niepotrzebny i został usunięty po
 automatycznym security review; SYN scan zweryfikowany, że działa z samym `NET_RAW`),
 bez kombinowania z `setcap` + non-root userem wewnątrz kontenera.
-`scanner._naabu_can_syn()` wykrywa to przez `os.geteuid() == 0`
+`scan.tools.naabu_can_syn()` wykrywa to przez `os.geteuid() == 0`
 jako sygnał pierwszeństwa (na WSL/Kali bez roota sygnałem jest `getcap` na
 pliku binarki - `scripts/install_tools.sh` ustawia to tam ręcznie) - w obu
 przypadkach: jeśli żadnego nie da się potwierdzić, bezpieczny fallback do
@@ -307,11 +308,11 @@ nie język implementacji).
 | Wymaganie | Gdzie w kodzie |
 |---|---|
 | Import listy IP/CIDR/domen, formularz + CSV/JSON | `asi/targets.py`, `POST /api/scans`, `POST /api/scans/import-targets` |
-| Skan >10 000 adresów, podział na podgrupy, czas trwania | `scanner.batched_port_scan`, `scans.hosts_total/hosts_done/duration_s` |
+| Skan >10 000 adresów, podział na podgrupy, czas trwania | `scan.ports.batched_port_scan`, `scans.hosts_total/hosts_done/duration_s` |
 | Ograniczanie tempa | `rate_limit` → `naabu -rate`/`nmap --max-rate` |
 | Wykrywanie aktywnych hostów, podstawowych usług | `scan_ports` + `verify_ports` |
 | HTTP/HTTPS: tytuł, kod, nagłówki, TLS, przekierowania | `probe_web`, `tls_check` |
-| Proste wykrywanie technologii/CMS | `httpx -tech-detect` gdy zainstalowany, inaczej `scanner.detect_tech()` (fallback, pkt 2 w §2) |
+| Proste wykrywanie technologii/CMS | `httpx -tech-detect` gdy zainstalowany, inaczej `scan.web.detect_tech()` (fallback, pkt 2 w §2) |
 | Panel administracyjny, środowisko testowe | `ADMIN_RE` na tytule strony |
 | Porównanie dwóch skanów, nowe/zniknięte/zmienione | `main._diff` |
 | Hosty niestabilne, ocena po kolejnych skanach | `_diff`: `flapping_assets`, `confirmed_offline` |
@@ -338,3 +339,12 @@ nie język implementacji).
   środowiska testowego) - uczciwie, kompromis czasowy, nie udawane 100%.
 - `network_mode: host` (Docker) działa w pełni tylko na natywnym Linuksie -
   na Docker Desktop (Windows/Mac) skanowanie LAN jest ograniczone (§7).
+
+## 8. Warstwy kodu (po reorganizacji)
+
+`config` → `db` (migracje `PRAGMA user_version`) → `repo/*` (cały SQL skanów, harmonogramów, ustaleń,
+ustawień, alertów) → logika (`domain`, `history`, `alerts`, `scheduler`, `findings`, `importer`, `targets`,
+`report`) → `api/*` (routery, RBAC) → `main.py`. Silnik `scan/` składa się z etapów (`Stage`, `State`) z punktem
+wznowienia (checkpoint), oknem czasowym (`WindowExceeded` → status `paused_window`, wznowienie ręczne lub przez
+harmonogram) i opcjonalnym wywiadem zewnętrznym (`intel`, tylko publiczne IP; włączany opcją skanu albo
+`ASI_EXTERNAL_INTEL=1`). Wyjątki, w których SQL zostaje poza `repo/`: `auth`, `signatures`, `dashboard`, `gvm_scan`.

@@ -51,11 +51,11 @@ Skrót:
   z ochroną SSRF (`urljoin`+re-walidacja hosta) i ReDoS (`multiprocessing` z timeoutem,
   nie `ThreadPoolExecutor` - to nie wystarcza, zatrzymuje tylko czekanie).
 - **Fingerprinting/CMS**: `httpx -tech-detect` gdy zainstalowany, inaczej fallback
-  `scanner.detect_tech()` (nagłówki/cookies/body, regex bounded przeciw ReDoS).
+  `scan.web.detect_tech()` (nagłówki/cookies/body, regex bounded przeciw ReDoS).
 - **Diff i niestabilność**: `main._diff` - nowe/zniknięte/zmienione, plus `flapping_assets`
   (host pojawia się/znika niespójnie) i `confirmed_offline` (nieobecny ≥2 ostatnie skany).
   W ramach jednego przebiegu host bez żadnej odpowiedzi jest sondowany ponownie raz
-  (`scanner.retry_silent_hosts`): tani test osiągalności, pełny skan portów tylko
+  (`scan.ports.retry_silent_hosts`): tani test osiągalności, pełny skan portów tylko
   dla tych, które jednak odpowiedziały, ten sam `rate_limit`. Hosty z portami
   odrzuconymi przez `verify_ports` nie wchodzą w tę ścieżkę.
 - **Harmonogram + prawdziwe wznowienie**: `main._scheduler_loop` (wątek co 30s), tabela
@@ -84,7 +84,7 @@ Skrót:
   z samym NET_RAW, restart całej distro WSL nie psuje danych (wolumeny).
 - **Nagłówki bezpieczeństwa na własnym API** (`asi/main.py::_security_headers`) - CSP,
   X-Frame-Options, X-Content-Type-Options, Referrer-Policy (+ HSTS gdy `ASI_COOKIE_SECURE=1`).
-  To samo, czego `SEC_HEADERS` w `scanner.py` oczekuje od zbadanych hostów.
+  To samo, czego `SEC_HEADERS` w `scan/checks.py` oczekuje od zbadanych hostów.
 - **CI** (`.github/workflows/`): `docker-smoke.yml` (build + smoke test bez skanu) i
   `tests.yml` (pytest) na każdy push/PR do `main`.
 - **Panel React** (`frontend/`, Vite): nowy UI pod `/` - 4 widoki (zmiany od przebiegu, mapa
@@ -191,8 +191,7 @@ bez potrzeby na instancji, na której są realne wyniki skanów).
 ## 7. Struktura repo
 
 ```
-asi/            - backend (FastAPI), jeden moduł na funkcję (scanner/targets/auth/crypto/
-                   signatures/defectdojo/geo/gvm_scan/dashboard/db/main)
+asi/            - backend (FastAPI), warstwy: config/db/repo/ → logika → api/ (routery) + scan/ (silnik)
 frontend/        - panel React (Vite) - nowy UI pod "/"; stary UI dalej pod "/legacy"
 static/          - index.html (stary dashboard), command_center.html (wizualny widok)
 docs/            - architektura.md (techniczne), screnariusz.md (demo), openvas.md (GVM),

@@ -52,7 +52,7 @@ export default function App() {
   if (!user) return <Login onLogin={setUser} theme={theme} onTheme={toggleTheme} />;
 
   return (
-    <Shell user={user} screen={SCREENS[screen] ? screen : "overview"} theme={theme} onTheme={toggleTheme} onLogout={logout}>
+    <Shell user={user} screen={SCREENS[screen] ? screen : "overview"} theme={theme} onTheme={toggleTheme} onLogout={logout} onAuthLost={onAuthLost}>
       {(shell) => {
         const Screen = SCREENS[screen];
         return Screen

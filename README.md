@@ -83,6 +83,16 @@ Zmienne: `ASI_GVM_HOST` (adres IP hosta z GVM; brak = funkcja wyłączona), `ASI
 `ASI_GVM_SCANNER` (domyślnie "OpenVAS Default"), `ASI_GVM_PORT_LIST` (domyślnie "All IANA assigned TCP and UDP"),
 `ASI_GVM_MAX_WAIT` (sekundy, domyślnie 3600).
 
+### Harmonogramy, alerty, wywiad zewnętrzny
+Harmonogramy (Ustawienia/Harmonogram) uruchamiają skany cyklicznie; opcjonalne okno czasowe przerywa skan
+(`paused_window`), a kolejny przebieg albo przycisk „Wznów” kontynuuje od punktu wznowienia. Po skanie powstają
+alerty (dzwonek w górnym pasku; `ASI_WEBHOOK_URL` wysyła je też na webhook). `ASI_SCHEDULER=0` wyłącza harmonogramy.
+Wywiad zewnętrzny (Shodan/NVD/Censys/HIBP) jest domyślnie wyłączony, bo wysyła publiczne adresy celów do osób
+trzecich: włącz opcją skanu albo `ASI_EXTERNAL_INTEL=1`; klucze API wpisujesz w Ustawieniach (szyfrowane w bazie)
+lub zmiennymi `ASI_NVD_API_KEY`, `ASI_SHODAN_API_KEY`, `ASI_CENSYS_TOKEN`, `ASI_HIBP_API_KEY`.
+
+Testy i lint: `pip install -r requirements-dev.txt && ruff check asi tests && pytest`.
+
 ## Dokumentacja
 - `docs/architektura.md` - architektura, model danych, mapowanie na wymagania specyfikacji AGH, znane zaległości.
 - `docs/screnariusz.md` - modułowy scenariusz prezentacji/demo.

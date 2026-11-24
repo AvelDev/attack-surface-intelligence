@@ -193,6 +193,12 @@ function ScanDetail({ id, user, onAuthLost, flash, onChanged, onRepeat }) {
                      </button>
                    ) : (
                      <>
+                       {s.status === "paused_window" && (
+                         <button type="button" className="btn btn-sm btn-primary" title={t("s.resumeHint")}
+                                 onClick={() => act(() => api.resume(s.id), t("s.resumed")).then(res.load)}>
+                           <RotateCcw size={13} aria-hidden="true" /> {t("s.resume")}
+                         </button>
+                       )}
                        <button type="button" className="btn btn-sm" onClick={repeat}><RotateCcw size={13} aria-hidden="true" /> {t("s.repeat")}</button>
                        <button type="button" className="icon-btn btn-del" onClick={() => setConfirmDel(true)} aria-label={t("s.delete")} title={t("s.delete")}>
                          <Trash2 size={15} aria-hidden="true" />

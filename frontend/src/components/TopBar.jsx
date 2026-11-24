@@ -1,5 +1,6 @@
 import { RefreshCw, Sun, Moon, LogOut, Keyboard } from "lucide-react";
 import { useI18n } from "../i18n.jsx";
+import AlertsMenu from "./AlertsMenu.jsx";
 
 /** Górny pasek wspólny dla wszystkich ekranów; środek (children) należy do ekranu. */
 export default function TopBar({ shell, children, refreshing, onRefresh, onShortcuts }) {
@@ -22,6 +23,7 @@ export default function TopBar({ shell, children, refreshing, onRefresh, onShort
           <Keyboard size={16} strokeWidth={1.75} aria-hidden="true" />
         </button>
       )}
+      <AlertsMenu onAuthLost={shell.onAuthLost} />
       <div className="seg" role="group" aria-label={t("top.lang")}>
         {["pl", "en"].map((l) => (
           <button key={l} type="button" aria-pressed={lang === l} onClick={() => setLang(l)}>{l.toUpperCase()}</button>

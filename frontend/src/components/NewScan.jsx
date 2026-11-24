@@ -15,6 +15,8 @@ export default function NewScan({ onClose, onStarted, onAuthLost, flash, initial
   const [win, setWin] = useState(initial?.window || 0);
   const [nuclei, setNuclei] = useState(initial?.nuclei ?? true);
   const [gvm, setGvm] = useState(initial?.gvm ?? false);
+  const [deep, setDeep] = useState(initial?.deep ?? false);
+  const [intel, setIntel] = useState(initial?.intel ?? false);
   const [auth, setAuth] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
@@ -33,7 +35,7 @@ export default function NewScan({ onClose, onStarted, onAuthLost, flash, initial
   useEffect(() => { if (!nucleiOk) setNuclei(false); }, [nucleiOk]);
   // GVM/OpenVAS zostaje schowany, zamiast pokazywać wyszarzony checkbox, dopóki ktoś go
   // faktycznie nie skonfiguruje w Ustawieniach - przed tym i tak zawsze pomijany (zob.
-  // scanner.py), a wyszarzona opcja tylko sugeruje, że czegoś tu nie dokończono.
+  // asi/scan/pipeline.py), a wyszarzona opcja tylko sugeruje, że czegoś tu nie dokończono.
   const gvmAvailable = !!tools?.openvas?.installed;
   useEffect(() => { if (!gvmAvailable) setGvm(false); }, [gvmAvailable]);
 
@@ -59,7 +61,7 @@ export default function NewScan({ onClose, onStarted, onAuthLost, flash, initial
     if (!auth) return setError(t("ns.errAuth"));
     setBusy(true);
     try {
-      done(await api.startScan({ targets: list, authorized: true, nuclei, gvm, rate_limit: rate, time_window_mins: win || null }));
+      done(await api.startScan({ targets: list, authorized: true, nuclei, gvm, deep, intel, rate_limit: rate, time_window_mins: win || null }));
     } catch (err) { fail(err); }
   };
 
@@ -119,6 +121,8 @@ export default function NewScan({ onClose, onStarted, onAuthLost, flash, initial
             {t("ns.nuclei")}{!nucleiOk && ` — ${t("ns.unavailable")}`}
           </Check>
           {gvmAvailable && <Check checked={gvm} onChange={setGvm}>{t("ns.gvm")}</Check>}
+          <Check checked={deep} onChange={setDeep}>{t("ns.deep")}</Check>
+          <Check checked={intel} onChange={setIntel}>{t("ns.intel")}</Check>
         </fieldset>
         <div className="span-2 consent">
           <Check checked={auth} onChange={setAuth}>{t("ns.auth")}</Check>

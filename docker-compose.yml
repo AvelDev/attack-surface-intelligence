@@ -7,8 +7,13 @@
 # ograniczone do tego, co widać z wirtualnej maszyny Docker Desktop.
 services:
   asi:
-    build: .
-    image: attack-surface-intelligence:latest
+    build:
+      context: .
+      args:
+        ASI_VERSION: "${ASI_VERSION:-dev}"
+    # Wycofanie zmian: obrazy są tagowane wersją. Powrót do poprzedniej:
+    #   ASI_VERSION=<poprzednia> docker compose up -d   (przed aktualizacją zrób kopię wolumenu asi-data - patrz README)
+    image: "attack-surface-intelligence:${ASI_VERSION:-latest}"
     container_name: ${ASI_CONTAINER_NAME:-asi}
     network_mode: host
     # ports:
@@ -31,6 +36,10 @@ services:
       ASI_DEFECTDOJO_API_KEY: "${ASI_DEFECTDOJO_API_KEY:-}"
       ASI_GVM_HOST: "${ASI_GVM_HOST:-}"
       ASI_GVM_PASSWORD: "${ASI_GVM_PASSWORD:-}"
+      ASI_SCHEDULER: "${ASI_SCHEDULER:-1}"  # 0 = wyłącz automatyczne skany (np. awaryjnie)
+      ASI_WEBHOOK_URL: "${ASI_WEBHOOK_URL:-}"  # powiadomienia o alertach (Slack/Mattermost/Teams incoming webhook)
+      # Wywiad zewnętrzny (Shodan/NVD/Censys) wysyła publiczne adresy skanowanych celów do osób trzecich - domyślnie wyłączony
+      ASI_EXTERNAL_INTEL: "${ASI_EXTERNAL_INTEL:-}"
 
 volumes:
   asi-data:

@@ -34,10 +34,64 @@ export default function Settings({ user, shell, onAuthLost }) {
           )}
         </Frame>
       </div>
+      <Frame tag="D" id="intel" className="split-side" title={t("set.intel")}>
+        {!settings.data ? <LoadState error={settings.error} onRetry={settings.load} /> : (
+          <ApiKeys keys={settings.data.api_keys || []} isAdmin={isAdmin} onAuthLost={onAuthLost} flash={flash} onSaved={reload} />
+        )}
+      </Frame>
       <Frame tag="C" id="tools" className="split-side tools-mod" title={t("set.tools")}>
         {!tools.data ? <LoadState error={tools.error} onRetry={tools.load} /> : <ToolTable tools={tools.data} />}
       </Frame>
     </Page>
+  );
+}
+
+/** Klucze API źródeł wywiadu zewnętrznego. Wartość nigdy nie wraca z serwera - widać tylko, czy klucz jest zapisany. */
+function ApiKeys({ keys, isAdmin, onAuthLost, flash, onSaved }) {
+  const { t } = useI18n();
+  const [drafts, setDrafts] = useState({});
+  const [busy, setBusy] = useState("");
+  const run = async (key, fn, okMsg) => {
+    setBusy(key);
+    try {
+      await fn();
+      setDrafts((d) => ({ ...d, [key]: "" }));
+      flash(okMsg, "ok");
+      onSaved();
+    } catch (err) {
+      onAuthLost(err);
+      flash(err.message, "err");
+    }
+    setBusy("");
+  };
+  return (
+    <div className="form-grid">
+      <p className="field-hint span-2">{t("set.intelHint")}</p>
+      {keys.map((k) => (
+        <div key={k.key} className="span-2 api-key">
+          <Field label={k.label} hint={k.help}>
+            <input className="mono" type="password" autoComplete="off" disabled={!isAdmin || k.source === "env"}
+                   value={drafts[k.key] || ""} onChange={(e) => setDrafts((d) => ({ ...d, [k.key]: e.target.value }))}
+                   placeholder={k.set ? k.masked : t("set.keyPh")} />
+          </Field>
+          <p className={`set-status ${k.set ? "is-on" : ""}`}>
+            <i aria-hidden="true" />
+            {k.set ? (k.source === "env" ? t("set.keyFromEnv") : t("set.configured")) : t("set.notConfigured")}
+          </p>
+          {isAdmin && k.source !== "env" && (
+            <div className="form-actions">
+              <button type="button" className="btn btn-primary" disabled={busy === k.key || !(drafts[k.key] || "").trim()}
+                      onClick={() => run(k.key, () => api.putApiKey(k.key, drafts[k.key].trim()), t("set.saved"))}>{t("set.save")}</button>
+              {k.set && (
+                <button type="button" className="btn" disabled={busy === k.key}
+                        onClick={() => run(k.key, () => api.deleteApiKey(k.key), t("set.removed"))}>{t("set.remove")}</button>
+              )}
+            </div>
+          )}
+        </div>
+      ))}
+      {!isAdmin && <p className="q-ro span-2">{t("set.adminOnly")}</p>}
+    </div>
   );
 }
 

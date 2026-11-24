@@ -14,7 +14,7 @@ const NAV = [
   { key: "nav.cc", icon: Radar, external: "/command-center", sep: true },
 ];
 
-export default function Shell({ user, screen, theme, onTheme, onLogout, children }) {
+export default function Shell({ user, screen, theme, onTheme, onLogout, onAuthLost, children }) {
   const { t } = useI18n();
   return (
     <div className="shell">
@@ -44,7 +44,7 @@ export default function Shell({ user, screen, theme, onTheme, onLogout, children
           })}
         </ul>
       </nav>
-      <div className="col">{children({ user, theme, onTheme, onLogout })}</div>
+      <div className="col">{children({ user, theme, onTheme, onLogout, onAuthLost })}</div>
     </div>
   );
 }
