@@ -20,6 +20,7 @@ TEST_USER, TEST_PASSWORD = "tester", "test-password-123"
 def temp_db(tmp_path, monkeypatch):
     monkeypatch.setenv("ASI_DB", str(tmp_path / "test_asi.db"))
     monkeypatch.setenv("ASI_SCHEDULER", "0")
+    monkeypatch.setattr(auth, "ITERATIONS", 1000)  # PBKDF2 z produkcyjną liczbą iteracji spowalniałby każdy test o sekundy
     db.init()
     return db
 

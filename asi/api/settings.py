@@ -4,7 +4,6 @@ from pydantic import BaseModel, Field
 
 from .. import auth, defectdojo, gvm_scan, settings
 from ..errors import InvalidInput
-from ..scan import tools
 
 router = APIRouter(tags=["settings"])
 
@@ -36,7 +35,7 @@ def get_settings(user: dict = Depends(auth.require("read"))):
         "gvm_port": gvm_port,
         "gvm_username": gvm_username or "",
         "gvm_configured": bool(gvm_host and gvm_password),
-        "openvas_configured": tools.status().get("openvas", {}).get("installed", False),
+        "openvas_configured": gvm_scan.status()["reachable"],
         "api_keys": settings.status(),
     }
 
