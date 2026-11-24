@@ -4,17 +4,20 @@ Szukamy w PATH oraz w ~/go/bin (narzędzia Go) i katalogu interpretera (narzędz
 globalnego os.environ - ścieżkę dostaje tylko uruchamiany proces.
 """
 import os
+import re
 import shutil
 import subprocess
 import sys
 from urllib.parse import urlparse
 
 from .. import defectdojo, gvm_scan
+from ..nmap.command import Capabilities
 
 TOOLS = ["subfinder", "dnsx", "naabu", "nmap", "httpx", "nuclei",
          "amass", "assetfinder", "dnsrecon", "sslyze", "testssl", "wafw00f", "whatweb", "katana", "gau", "waybackurls"]
 TOOL_BIN = {"testssl": ("testssl.sh", "testssl")}  # nazwa narzędzia -> możliwe nazwy pliku
 _NAABU_SYN_CACHE = {}
+_NMAP_CACHE = {}
 
 
 def search_path():
@@ -43,15 +46,40 @@ def naabu_can_syn(path):
     Bezpieczny fallback do connect scan, gdy żadnego z tego nie da się potwierdzić."""
     if path in _NAABU_SYN_CACHE:
         return _NAABU_SYN_CACHE[path]
-    ok = hasattr(os, "geteuid") and os.geteuid() == 0
-    if not ok:
-        try:
-            r = subprocess.run(["getcap", path], capture_output=True, text=True, timeout=5, check=False)
-            ok = "cap_net_raw" in r.stdout.lower()
-        except (OSError, subprocess.SubprocessError):
-            ok = False
+    ok = _is_root() or _has_net_raw(path)
     _NAABU_SYN_CACHE[path] = ok
     return ok
+
+
+def _is_root():
+    return hasattr(os, "geteuid") and os.geteuid() == 0
+
+
+def _has_net_raw(path):
+    try:
+        r = subprocess.run(["getcap", path], capture_output=True, text=True, timeout=5, check=False)
+        return "cap_net_raw" in r.stdout.lower()
+    except (OSError, subprocess.SubprocessError):
+        return False
+
+
+def nmap_capabilities(path):
+    """(Capabilities, wersja). Uprawnienia sprawdza sam nmap: jedna sonda SYN na własny localhost. Pewniejsze niż
+    zgadywanie po uid, bo zależy też od NET_RAW w kontenerze, setcap i (Windows) Npcap."""
+    if path not in _NMAP_CACHE:
+        force = os.name == "posix" and not _is_root() and _has_net_raw(path)
+        version, raw = "", False
+        try:
+            r = subprocess.run([path, "--version"], capture_output=True, text=True, timeout=10, check=False)
+            m = re.search(r"Nmap version (\S+)", r.stdout)
+            version = m[1] if m else ""
+            probe = [path, *["--privileged"] * force, "-sS", "-Pn", "-n", "-p", "9", "--max-retries", "1", "127.0.0.1"]
+            r = subprocess.run(probe, capture_output=True, text=True, timeout=20, check=False, stdin=subprocess.DEVNULL)
+            raw = r.returncode == 0 and "QUITTING" not in r.stdout + r.stderr
+        except (OSError, subprocess.SubprocessError):
+            pass
+        _NMAP_CACHE[path] = Capabilities(raw=raw, force_privileged=force and raw), version
+    return _NMAP_CACHE[path]
 
 
 def host_only(url):
@@ -75,6 +103,9 @@ def status():
         out[name] = {"installed": ok, "path": path if ok else None}
     if out["naabu"]["installed"]:
         out["naabu"]["syn"] = naabu_can_syn(out["naabu"]["path"])
+    if out["nmap"]["installed"]:
+        caps, version = nmap_capabilities(out["nmap"]["path"])
+        out["nmap"] |= {"raw": caps.raw, "version": version}
     gs = gvm_scan.status()
     gvm_host, gvm_port, _user, _pass = gvm_scan.get_config()
     out["openvas"] = {"installed": gs["reachable"], "path": f"{gvm_host}:{gvm_port}" if gs["configured"] else None}

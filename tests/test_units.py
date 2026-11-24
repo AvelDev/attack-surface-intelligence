@@ -10,17 +10,6 @@ from asi.repo import scans as scans_repo
 from asi.scan import context, dns, pipeline, ports, runner, web
 from tests.conftest import seed_scan
 
-NMAP_XML = """<?xml version="1.0"?><nmaprun>
-<host><address addr="1.2.3.4" addrtype="ipv4"/><ports>
-  <port protocol="tcp" portid="22"><state state="open"/><service name="ssh" product="OpenSSH" version="9.6"/></port>
-  <port protocol="tcp" portid="443"><state state="open"/><service name="http" tunnel="ssl"/></port>
-  <port protocol="tcp" portid="25"><state state="open"/><service name="tcpwrapped"/></port>
-  <port protocol="tcp" portid="80"><state state="closed"/><service name="http"/></port>
-</ports></host>
-<host><address addr="9.9.9.9" addrtype="ipv4"/><ports>
-  <port protocol="tcp" portid="80"><state state="open"/></port></ports></host>
-</nmaprun>"""
-
 
 # ---------- domena ----------
 def test_domain_spec_is_consistent():
@@ -41,12 +30,6 @@ def test_sort_findings_puts_unknown_last():
 
 
 # ---------- porty ----------
-def test_parse_nmap_xml():
-    out = ports.parse_nmap_xml(NMAP_XML, ["1.2.3.4"])
-    assert out == {"1.2.3.4": [{"port": 22, "service": "ssh", "version": "OpenSSH 9.6"},
-                               {"port": 443, "service": "ssl/http", "version": ""}]}
-
-
 @pytest.mark.parametrize("port,data,ok", [
     (22, b"SSH-2.0-OpenSSH", True), (22, b"HTTP/1.1 400", False), (21, b"", False), (6379, b"-ERR", True),
 ])

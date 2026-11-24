@@ -1,14 +1,17 @@
 """Import gotowych wyników (nie celów do skanowania) - format symetryczny do /api/scans/{id}/export.json.
 
-CSV (format export.csv) importuje same ustalenia, bez grafu zasobów."""
+CSV (format export.csv) importuje same ustalenia, bez grafu zasobów; XML to wynik nmap -oX."""
 import csv
 import hashlib
 import io
 import json
 
-from . import domain
+from . import domain, targets
 from .errors import InvalidInput
+from .nmap import parser as nmap_parser
+from .nmap import rules
 from .repo import scans as repo
+from .scan import nmap_scan, ports
 
 
 def _parse(text, filename):
@@ -23,7 +26,32 @@ def _parse(text, filename):
         return data.get("scan") or {}, assets, edges, data.get("findings") or []
     if name.endswith(".csv"):
         return {}, [], [], list(csv.DictReader(io.StringIO(text)))
-    raise InvalidInput("Obsługiwane formaty pliku: .json, .csv")
+    if name.endswith(".xml"):
+        return _parse_nmap(text)
+    raise InvalidInput("Obsługiwane formaty pliku: .json, .csv, .xml (nmap -oX)")
+
+
+def _parse_nmap(text):
+    """Wynik nmap -oX uruchomionego poza ASI: te same zasoby i ustalenia, które zapisałby skan."""
+    run = nmap_parser.parse(text)
+    assets, edges, found = [], [], []
+    for h in run["hosts"]:
+        if not nmap_scan.responded(h):
+            continue
+        host_id = f"ip:{h['ip']}"
+        assets.append({"id": host_id, "kind": "ip", "value": h["ip"], "data": nmap_scan.host_data(h)})
+        rows = [(host_id, f) for f in rules.findings(h.get("scripts"))]
+        for p in h["ports"]:
+            value = ports.port_value(h["ip"], p)
+            assets.append({"id": f"port:{value}", "kind": "port", "value": value, "data": p})
+            edges.append({"src": host_id, "dst": f"port:{value}"})
+            rows += [(f"port:{value}", f) for f in ports.port_findings(h["ip"], p)]
+        found += [dict(zip(("asset", "severity", "title", "source", "detail", "fix"), (aid, *f), strict=True)) for aid, f in rows]
+    if not assets:
+        raise InvalidInput("Plik nmap nie zawiera hostów, które odpowiedziały.")
+    hosts = [a["value"] for a in assets if a["kind"] == "ip"]
+    meta = {"target": f"nmap: {targets.display_name(hosts, hosts)}", "score": domain.risk_score([f["severity"] for f in found], len(hosts))}
+    return meta, assets, edges, found
 
 
 def _clean_findings(raw, sid_hint="import"):

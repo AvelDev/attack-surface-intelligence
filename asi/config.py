@@ -29,6 +29,7 @@ class Config:
     max_workers: int  # ile skanów (jobów) naraz
     scan_rate: int  # pakiety/s dla naabu/nmap (per paczka)
     max_targets: int  # twardy limit celów na skan (rozwinięty CIDR)
+    nmap_intrusive: bool  # czy rola admin może uruchamiać skrypty NSE z kategorii brute/exploit/dos/fuzzer
     external_intel: bool  # czy wysyłać publiczne adresy skanowanych celów do zewnętrznych baz (Shodan, NVD, Censys)
 
 
@@ -45,5 +46,6 @@ def load():
         max_workers=int(os.environ.get("ASI_MAX_WORKERS", "4")),
         scan_rate=int(os.environ.get("ASI_SCAN_RATE", "300")),
         max_targets=int(os.environ.get("ASI_MAX_TARGETS", "20000")),
+        nmap_intrusive=_flag("ASI_NMAP_INTRUSIVE"),
         external_intel=_flag("ASI_EXTERNAL_INTEL"),
     )

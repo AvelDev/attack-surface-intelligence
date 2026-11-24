@@ -4,9 +4,11 @@ Pola z surowymi danymi ze skanowanych hostów (log, szczegóły ustaleń, dane z
 w spoczynku (crypto.py); identyfikatory, tytuły i ważności zostają jawne, bo na nich działa diff i sortowanie.
 Szyfrowanie jest szczegółem tego modułu - wyżej widać zwykły tekst.
 """
+import base64
 import json
 import threading
 import time
+import zlib
 
 from .. import crypto, db
 
@@ -104,7 +106,7 @@ def is_busy(target):
 
 def delete(sid):
     with db.conn() as c:
-        for t in ("assets", "edges", "findings", "scan_targets"):
+        for t in ("assets", "edges", "findings", "scan_targets", "nmap_runs"):
             c.execute(f"DELETE FROM {t} WHERE scan_id=?", (sid,))
         c.execute("DELETE FROM scans WHERE id=?", (sid,))
 
@@ -154,6 +156,15 @@ class Writer:
             d["tech"] = sorted(set(d.get("tech", [])) | set(tech))
             self._run("UPDATE assets SET data=? WHERE scan_id=? AND id=?", crypto.enc(json.dumps(d)), self.sid, aid)
 
+    def merge_data(self, aid, kind, value, data):
+        """Dokłada pola do danych zasobu, zakładając go, gdy go jeszcze nie ma."""
+        r = self._c.execute("SELECT data FROM assets WHERE scan_id=? AND id=?", (self.sid, aid)).fetchone()
+        self.upsert_asset(aid, kind, value, {**(json.loads(crypto.dec(r["data"])) if r else {}), **data})
+
+    def add_nmap_run(self, command, started, elapsed, complete, hosts, hosts_up, xml):
+        self._run("INSERT INTO nmap_runs(scan_id,command,started,elapsed,complete,hosts,hosts_up,xml) VALUES(?,?,?,?,?,?,?,?)",
+                  self.sid, crypto.enc(command), started, elapsed, int(complete), hosts, hosts_up, _pack(xml))
+
     def add_edge(self, src, dst):
         self._run("INSERT OR IGNORE INTO edges(scan_id,src,dst) VALUES(?,?,?)", self.sid, src, dst)
 
@@ -199,6 +210,30 @@ class Writer:
 
     def clear_checkpoint(self):
         self._run("UPDATE scans SET checkpoint=NULL WHERE id=?", self.sid)
+
+
+# ---------- surowe wyniki nmap ----------
+def _pack(text):
+    """XML jest bardzo powtarzalny: kompresja przed szyfrowaniem zmniejsza bazę o rząd wielkości."""
+    return crypto.enc(base64.b64encode(zlib.compress(text.encode("utf-8"))).decode("ascii"))
+
+
+def _unpack(stored):
+    return zlib.decompress(base64.b64decode(crypto.dec(stored))).decode("utf-8")
+
+
+def nmap_runs(sid):
+    """Uruchomienia nmapa w skanie (bez XML), w kolejności."""
+    with db.conn() as c:
+        rows = c.execute("SELECT id,command,started,elapsed,complete,hosts,hosts_up FROM nmap_runs WHERE scan_id=? ORDER BY id", (sid,)).fetchall()
+    return [dict(r, command=crypto.dec(r["command"]), complete=bool(r["complete"])) for r in rows]
+
+
+def nmap_xml(sid):
+    """Surowe wyniki XML kolejnych uruchomień nmapa."""
+    with db.conn() as c:
+        rows = c.execute("SELECT xml FROM nmap_runs WHERE scan_id=? ORDER BY id", (sid,)).fetchall()
+    return [_unpack(r["xml"]) for r in rows]
 
 
 # ---------- odczyt ----------

@@ -12,10 +12,10 @@ from fastapi.responses import JSONResponse
 from .. import auth, config, db, scheduler
 from ..errors import Conflict, InvalidInput, NotFound
 from ..repo import scans as scans_repo
-from . import alerts, dashboard, defectdojo, findings, frontend, ranges, scans, schedules, security, session, settings, signatures, system, users
+from . import alerts, dashboard, defectdojo, findings, frontend, nmap, ranges, scans, schedules, security, session, settings, signatures, system, users
 
 _STATUS = {InvalidInput: 400, NotFound: 404, Conflict: 409}
-ROUTERS = (session, users, signatures, scans, findings, dashboard, ranges, defectdojo, settings, schedules, alerts, system)
+ROUTERS = (session, users, signatures, scans, findings, dashboard, ranges, defectdojo, settings, schedules, alerts, nmap, system)
 
 
 @asynccontextmanager

@@ -59,6 +59,11 @@ class Ctx:
         self.db.upsert_asset(aid, kind, value, data or {})
         return aid
 
+    def merge_asset(self, kind, value, data):
+        aid = f"{kind}:{value}"
+        self.db.merge_data(aid, kind, value, data)
+        return aid
+
     def has_asset(self, aid):
         return self.db.has_asset(aid)
 

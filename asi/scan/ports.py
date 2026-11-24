@@ -3,10 +3,12 @@ import socket
 import ssl
 import threading
 import time
-import xml.etree.ElementTree as ET
 from concurrent.futures import ThreadPoolExecutor
 
 from .. import config, net
+from ..nmap import command, rules
+from ..nmap import options as nmap_options
+from . import nmap_scan
 from . import tools as tools_mod
 from .proc import jsonl, run_cmd
 
@@ -34,6 +36,13 @@ RISKY = {  # port -> (severity, tytuł, zalecenie)
     9200: ("high", "Elasticsearch dostępny z internetu", "Zamknij port, włącz security i ACL."),
     1723: ("low", "PPTP VPN (przestarzały protokół)", "Migruj na WireGuard/IPsec."),
 }
+RISKY_UDP = {
+    69: ("medium", "TFTP wystawiony do internetu", "Wyłącz TFTP albo ogranicz dostęp."),
+    161: ("medium", "SNMP wystawiony do internetu", "Użyj SNMPv3 i ogranicz dostęp do stacji zarządzających."),
+    623: ("high", "IPMI wystawiony do internetu", "Przenieś interfejs zarządzania do wydzielonej sieci."),
+    1900: ("medium", "SSDP/UPnP wystawiony do internetu", "Wyłącz UPnP na brzegu sieci."),
+    11211: ("high", "Memcached (UDP) wystawiony do internetu", "Wyłącz UDP i ogranicz nasłuch do sieci aplikacji."),
+}
 SENSITIVE_PORTS = frozenset({21, 23, 445, 3389, 5900, 3306, 5432, 6379, 27017, 9200, 1433})  # warte alarmu, gdy widzi je ktoś inny
 BANNER_EXPECT = {21: b"220", 22: b"SSH-", 25: b"220", 110: b"+OK", 143: b"* OK"}
 HTTP_PORTS = {80, 8000, 8008, 8080, 8888, 3000}
@@ -50,26 +59,23 @@ def _port(port, service="", version=""):
     return {"port": int(port), "service": service, "version": version}
 
 
-def parse_nmap_xml(xml, wanted_ips):
-    """Wynik `nmap -oX -` -> {ip: [port]}. Pomija porty zamknięte i 'tcpwrapped'. ET.ParseError przy złym XML."""
-    result = {ip: [] for ip in wanted_ips}
-    for h in ET.fromstring(xml).iter("host"):
-        a = h.find("address[@addrtype='ipv4']")
-        if a is None or a.get("addr") not in result:
-            continue
-        for p in h.iter("port"):
-            state = p.find("state")
-            if state is None or state.get("state") != "open":
-                continue
-            s = p.find("service")
-            s = s.attrib if s is not None else {}
-            if s.get("name") == "tcpwrapped":
-                continue  # połączenie zamykane od razu - port w rzeczywistości zamknięty
-            result[a.get("addr")].append(_port(
-                p.get("portid"),
-                (s.get("tunnel", "") + "/" if s.get("tunnel") else "") + s.get("name", ""),
-                " ".join(x for x in (s.get("product"), s.get("version")) if x)))
-    return result
+def is_tcp(p):
+    return p.get("proto", "tcp") == "tcp"
+
+
+def port_value(ip, p):
+    """Wartość zasobu `port`. TCP bez przyrostka (zgodność z wcześniejszymi skanami), reszta z protokołem: 10.0.0.1:161/udp."""
+    return f"{ip}:{p['port']}" + ("" if is_tcp(p) else f"/{p['proto']}")
+
+
+def port_findings(ip, p):
+    """Ustalenia wynikające z samego otwartego portu: ryzykowna usługa i wyniki skryptów NSE."""
+    out = rules.findings(p.get("scripts"))
+    risky = (RISKY if is_tcp(p) else RISKY_UDP if p["proto"] == "udp" else {}).get(p["port"])
+    if risky and p.get("service") != "tcpwrapped":
+        sev, title, fix = risky
+        out.insert(0, (sev, title, "builtin", f"{port_value(ip, p)} {p.get('service', '')} {p.get('version', '')}".strip(), fix))
+    return out
 
 
 def _tcp_open(ip, port, timeout=1.5):
@@ -84,32 +90,59 @@ def scan_ports(ctx, ips, tools, rate=None):
     """Zwraca ({ip: [port]}, answered). `answered` to adresy, które cokolwiek pokazały przed weryfikacją -
     pusta lista portów BEZ wpisu w `answered` znaczy "nie odezwał się", nie "fałszywe porty"."""
     rate = rate or config.load().scan_rate
-    result = {ip: [] for ip in ips}
     if not ips:
-        return result, set()
-    if tools["naabu"]["installed"]:
-        scan_type = "s" if tools_mod.naabu_can_syn(tools["naabu"]["path"]) else "c"
-        out = run_cmd(ctx, ["naabu", "-list", "/dev/stdin", "-top-ports", "100", "-rate", str(rate),
-                            "-s", scan_type, "-silent", "-json"], 600, stdin="\n".join(ips))
-        for j in jsonl(out):
-            ip, port = j.get("ip") or j.get("host"), j.get("port")
-            if ip in result and port:
-                result[ip].append(_port(port, SERVICE.get(int(port), "")))
-    elif tools["nmap"]["installed"]:
-        out = run_cmd(ctx, ["nmap", "-Pn", "-sT", "--top-ports", "100", "-sV", "--version-light",
-                            "-T3", "--open", "--max-rate", str(rate), "-oX", "-", *ips], 900)
-        try:
-            result = parse_nmap_xml(out, ips)
-        except ET.ParseError:
-            ctx.log("  nie udało się sparsować XML z nmap")
+        return {}, set()
+    opts = nmap_scan.for_scan(ctx, tools)
+    if opts is None and not tools["naabu"]["installed"] and tools["nmap"]["installed"]:
+        opts = nmap_options.FALLBACK
+    if opts is not None:
+        result, responded = _scan_nmap(ctx, ips, opts, tools, rate)
+    elif tools["naabu"]["installed"]:
+        result, responded = _scan_naabu(ctx, ips, tools, rate, ["-top-ports", "100"]), set()
     else:
-        ctx.log(f"Brak naabu/nmap - skan TCP connect w Pythonie ({len(PY_PORTS)} portów)")
-        jobs = [(ip, p) for ip in ips for p in PY_PORTS]
-        with ThreadPoolExecutor(64) as ex:
-            for (ip, p), ok in zip(jobs, ex.map(lambda j: _tcp_open(*j), jobs), strict=True):
-                if ok:
-                    result[ip].append(_port(p, SERVICE.get(p, "")))
-    return verify_ports(ctx, result)
+        result, responded = _scan_python(ctx, ips), set()
+    confirmed, answered = verify_ports(ctx, result)
+    return confirmed, answered | responded
+
+
+def _scan_naabu(ctx, ips, tools, rate, port_args, timeout=600):
+    result = {ip: [] for ip in ips}
+    scan_type = "s" if tools_mod.naabu_can_syn(tools["naabu"]["path"]) else "c"
+    out = run_cmd(ctx, ["naabu", "-list", "/dev/stdin", *port_args, "-rate", str(rate), "-s", scan_type, "-silent", "-json"],
+                  timeout, stdin="\n".join(ips))
+    for j in jsonl(out):
+        ip, port = j.get("ip") or j.get("host"), j.get("port")
+        if ip in result and port:
+            result[ip].append(_port(port, SERVICE.get(int(port), "")))
+    return result
+
+
+def _scan_python(ctx, ips):
+    result = {ip: [] for ip in ips}
+    ctx.log(f"Brak naabu/nmap - skan TCP connect w Pythonie ({len(PY_PORTS)} portów)")
+    jobs = [(ip, p) for ip in ips for p in PY_PORTS]
+    with ThreadPoolExecutor(64) as ex:
+        for (ip, p), ok in zip(jobs, ex.map(lambda j: _tcp_open(*j), jobs), strict=True):
+            if ok:
+                result[ip].append(_port(p, SERVICE.get(p, "")))
+    return result
+
+
+def _scan_nmap(ctx, ips, opts, tools, rate):
+    """({ip: [port]}, hosty, które się odezwały). Z prescan: naabu znajduje porty, nmap bada tylko je i tylko hosty z portami."""
+    result, only_ports, wanted = {ip: [] for ip in ips}, None, ips
+    if opts.prescan and tools["naabu"]["installed"]:
+        result = _scan_naabu(ctx, ips, tools, rate, command.naabu_ports(opts), timeout=nmap_scan.TIMEOUT_S)
+        wanted = [ip for ip in ips if result[ip]]
+        only_ports = {p["port"] for ip in wanted for p in result[ip]}
+        if not wanted:
+            return result, set()
+    hosts = nmap_scan.run(ctx, wanted, opts, tools, rate, only_ports)
+    for h in hosts:
+        known = {(p["port"], p["proto"]) for p in h["ports"]}
+        # port znaleziony przez naabu, którego nmap nie potwierdził, rozstrzyga verify_ports
+        result[h["ip"]] = h["ports"] + [p for p in result[h["ip"]] if (p["port"], "tcp") not in known]
+    return result, {h["ip"] for h in hosts if nmap_scan.responded(h)}
 
 
 def banner_verdict(port, data):
@@ -144,18 +177,18 @@ def _verify(ip, port, timeout=4):
 
 
 def verify_ports(ctx, result):
-    jobs = [(ip, p) for ip, pl in result.items() for p in pl]
+    jobs = [(ip, p) for ip, pl in result.items() for p in pl if is_tcp(p)]
     with ThreadPoolExecutor(32) as ex:
         # jedna powtórka dla odrzuconych - chroni przed chwilowymi zwłokami w sieci
         verdicts = list(ex.map(lambda j: _verify(j[0], j[1]["port"]), jobs))
         retry = [i for i, v in enumerate(verdicts) if not v[0]]
         for i, v in zip(retry, ex.map(lambda i: _verify(jobs[i][0], jobs[i][1]["port"]), retry), strict=True):
             verdicts[i] = v
-    out = {ip: [] for ip in result}
+    out = {ip: [p for p in pl if not is_tcp(p)] for ip, pl in result.items()}
     dropped = []
     for (ip, p), (ok, banner) in zip(jobs, verdicts, strict=True):
-        if ok:
-            if banner:
+        if ok or p.get("probed"):  # nmap -sV rozmawiał z usługą i ją rozpoznał - to mocniejszy dowód niż baner
+            if ok and banner:
                 p["banner"] = banner
             out[ip].append(p)
         else:
@@ -163,7 +196,7 @@ def verify_ports(ctx, result):
     if dropped:
         ctx.log(f"Odrzucono fałszywe/niepotwierdzone porty: {', '.join(dropped)}")
     for ip in out:
-        out[ip].sort(key=lambda x: x["port"])
+        out[ip].sort(key=lambda x: (x["port"], x.get("proto", "tcp")))
     # answered = host w ogóle coś pokazał (nawet jeśli weryfikacja wszystko odrzuciła)
     answered = {ip for ip, plist in result.items() if plist}
     return out, answered
@@ -171,6 +204,8 @@ def verify_ports(ctx, result):
 
 def web_scheme(p):
     """'https' / 'http' / None dla wykrytego portu."""
+    if not is_tcp(p):
+        return None
     port, svc = p["port"], p.get("service", "")
     if "https" in svc or "ssl/http" in svc or port in (443, 8443, 9443):
         return "https"
@@ -214,11 +249,10 @@ def persist_batch(ctx, found):
     razem z przekroczonym oknem czasowym."""
     for ip, plist in found.items():
         for p in plist:
-            pid = ctx.asset("port", f"{ip}:{p['port']}", p)
+            pid = ctx.asset("port", port_value(ip, p), p)
             ctx.edge(f"ip:{ip}", pid)
-            if p["port"] in RISKY and p.get("service") != "tcpwrapped":
-                sev, title, fix = RISKY[p["port"]]
-                ctx.finding(pid, sev, title, "builtin", f"{ip}:{p['port']} {p['service']} {p['version']}", fix)
+            for f in port_findings(ip, p):
+                ctx.finding(pid, *f)
 
 
 def reload_scanned_ports(ctx):
@@ -260,7 +294,7 @@ def retry_silent_hosts(ctx, ports, answered, tools, rate=None, pause_s=HOST_RETR
     return ports
 
 
-def batched_port_scan(ctx, ips, tools, rate=None, start_batch=200, track_progress=True, done_offset=0):
+def batched_port_scan(ctx, ips, tools, rate=None, start_batch=None, track_progress=True, done_offset=0):
     """Dzieli listę IP na paczki, adaptując rozmiar do zmierzonej przepustowości tak, by każda paczka trwała
     ~BATCH_TARGET_S - daje "podział na optymalne podgrupy" oraz postęp widoczny w trakcie (jeden wielki skan naabu/nmap
     nie dałby żadnego postępu). Zwraca (porty, answered).
@@ -272,7 +306,8 @@ def batched_port_scan(ctx, ips, tools, rate=None, start_batch=200, track_progres
     result, answered = {}, set()
     if not ips:
         return result, answered
-    batch_size, done, i = max(1, start_batch), 0, 0
+    first, smallest = nmap_scan.batch_bounds(ctx, tools)
+    batch_size, done, i = max(1, start_batch or first), 0, 0
     while i < len(ips):
         if track_progress:
             # Zanim spróbujemy kolejnej paczki (i ewentualnie wywalimy się na oknie czasowym) - zapisz, co jeszcze zostało.
@@ -292,7 +327,7 @@ def batched_port_scan(ctx, ips, tools, rate=None, start_batch=200, track_progres
             ctx.hosts_progress(done_offset + done)
         ctx.log(f"Paczka {len(chunk)} hostów w {elapsed:.1f}s ({done_offset + done}/{done_offset + len(ips)})")
         if elapsed > 0.5:
-            batch_size = max(50, min(2000, int(len(chunk) / elapsed * BATCH_TARGET_S)))
+            batch_size = max(smallest, min(2000, int(len(chunk) / elapsed * BATCH_TARGET_S)))
     if track_progress:
         ctx.save_checkpoint(pending_ips=None)  # ten etap w całości zrobiony - nic do doskanowania
     return result, answered

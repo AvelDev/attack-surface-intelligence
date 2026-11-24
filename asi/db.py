@@ -181,7 +181,24 @@ CREATE INDEX IF NOT EXISTS alerts_unread ON alerts(read);
 """)
 
 
-MIGRATIONS = [_m1_base, _m2_legacy_columns, _m3_indexes]
+def _m4_nmap_runs(c):
+    c.executescript("""
+CREATE TABLE IF NOT EXISTS nmap_runs(
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  scan_id INTEGER NOT NULL,
+  command TEXT NOT NULL,
+  started REAL NOT NULL,
+  elapsed REAL NOT NULL DEFAULT 0,
+  complete INTEGER NOT NULL DEFAULT 1,
+  hosts INTEGER NOT NULL DEFAULT 0,
+  hosts_up INTEGER NOT NULL DEFAULT 0,
+  xml TEXT NOT NULL DEFAULT ''
+);
+CREATE INDEX IF NOT EXISTS nmap_runs_scan ON nmap_runs(scan_id);
+""")
+
+
+MIGRATIONS = [_m1_base, _m2_legacy_columns, _m3_indexes, _m4_nmap_runs]
 SCHEMA_VERSION = len(MIGRATIONS)
 
 

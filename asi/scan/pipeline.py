@@ -23,7 +23,7 @@ from typing import NamedTuple
 from urllib.parse import urlparse
 
 from .. import config, domain, gvm_scan, signatures, targets
-from . import checks, dns, intel, ports, urls, web
+from . import checks, dns, intel, nmap_scan, ports, urls, web
 from .context import ScanStopped, WindowExceeded
 from .proc import jsonl, run_cmd
 
@@ -122,8 +122,11 @@ def prepare_scope(ctx, st):
 def scan_ports(ctx, st):
     rate = ctx.opts.get("rate_limit")
     if st.pending_ips:
+        nmap_scan.announce(ctx, st.tools)
         found, answered = ports.batched_port_scan(ctx, st.pending_ips, st.tools, rate=rate, done_offset=st.done_offset)
-        ports.retry_silent_hosts(ctx, found, answered, st.tools, rate=rate)
+        if nmap_scan.seeks_open_tcp(ctx, st.tools):
+            # powtórka sonduje porty TCP - przy wykrywaniu hostów, UDP i badaniu zapory nic by nie wniosła
+            ports.retry_silent_hosts(ctx, found, answered, st.tools, rate=rate)
     else:
         ctx.log("Skan portów zakończony w poprzednim przebiegu")
     # Zawsze z bazy, nie z lokalnego dict-a - poprawne i dla świeżego przebiegu, i dla wznowienia (porty hostów

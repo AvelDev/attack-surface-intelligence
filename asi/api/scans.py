@@ -1,12 +1,17 @@
 """Skany: uruchamianie (formularz, import celów), odczyt, eksporty, zatrzymanie i wznowienie, import wyników."""
+import json
+
 from fastapi import APIRouter, Depends, File, Form, UploadFile
 from fastapi.responses import HTMLResponse, JSONResponse, Response
 from pydantic import BaseModel, Field
 
-from .. import auth, domain, findings, geo, history, importer, report, targets
+from .. import auth, config, domain, findings, geo, history, importer, report, targets
 from ..errors import Conflict, InvalidInput, NotFound
+from ..nmap import options as nmap_options
+from ..nmap import parser as nmap_parser
+from ..nmap import policy
 from ..repo import scans as repo
-from ..scan import runner
+from ..scan import nmap_scan, runner
 
 router = APIRouter(tags=["scans"])
 LOG_TAIL_LINES = 400
@@ -23,6 +28,7 @@ class ScanReq(BaseModel):
     gvm: bool = False
     rate_limit: int | None = None
     time_window_mins: int | None = None
+    nmap: dict | None = None
 
 
 def require_authorization(authorized, message):
@@ -30,7 +36,7 @@ def require_authorization(authorized, message):
         raise InvalidInput(message)
 
 
-def scan_options(nuclei=False, gvm=False, rate_limit=None, time_window_mins=None, deep=False, intel=False):
+def scan_options(user, nuclei=False, gvm=False, rate_limit=None, time_window_mins=None, deep=False, intel=False, nmap=None):
     opts = {"nuclei": bool(nuclei), "gvm": bool(gvm), "deep": bool(deep), "intel": bool(intel)}
     if rate_limit:
         if not 1 <= int(rate_limit) <= MAX_RATE:
@@ -38,7 +44,16 @@ def scan_options(nuclei=False, gvm=False, rate_limit=None, time_window_mins=None
         opts["rate_limit"] = int(rate_limit)
     if time_window_mins:
         opts["time_window_mins"] = int(time_window_mins)
+    if nmap:
+        opts["nmap"] = nmap_options.dump(authorized_nmap(nmap, user, opts))
     return opts
+
+
+def authorized_nmap(raw, user, opts):
+    """Opcje nmap po walidacji i sprawdzeniu, czy ta rola może uruchomić wybrane skrypty na tym serwerze."""
+    parsed = nmap_options.parse(raw)
+    policy.check(parsed, gated=config.load().nmap_intrusive and user["role"] == "admin", external=nmap_scan.external_allowed(opts))
+    return parsed
 
 
 def _started(raw_items, opts):
@@ -55,12 +70,13 @@ def create_scan(req: ScanReq, user: dict = Depends(auth.require("add_remove_modi
     raw_items = req.targets if req.targets else ([req.target] if req.target else [])
     if not raw_items:
         raise InvalidInput("Podaj cel (target) lub listę celów (targets).")
-    return _started(raw_items, scan_options(req.nuclei, req.gvm, req.rate_limit, req.time_window_mins, req.deep, req.intel))
+    return _started(raw_items, scan_options(user, req.nuclei, req.gvm, req.rate_limit, req.time_window_mins, req.deep, req.intel, req.nmap))
 
 
 @router.post("/scans/import-targets")
 def import_targets(file: UploadFile = File(...), authorized: bool = Form(False), nuclei: bool = Form(False),
-                   gvm: bool = Form(False), rate_limit: int | None = Form(None), time_window_mins: int | None = Form(None),
+                   gvm: bool = Form(False), deep: bool = Form(False), intel: bool = Form(False),
+                   rate_limit: int | None = Form(None), time_window_mins: int | None = Form(None), nmap: str = Form(""),
                    user: dict = Depends(auth.require("add_remove_modify"))):
     # def (nie async def): FastAPI uruchamia ją w puli wątków, więc odczyt pliku nie blokuje pętli zdarzeń.
     require_authorization(authorized, "Potwierdź, że masz zgodę na skanowanie tych celów.")
@@ -70,7 +86,11 @@ def import_targets(file: UploadFile = File(...), authorized: bool = Form(False),
     raw_items = parse(text)
     if not raw_items:
         raise InvalidInput("Plik nie zawiera żadnych celów.")
-    return _started(raw_items, scan_options(nuclei, gvm, rate_limit, time_window_mins))
+    try:
+        nmap_opts = json.loads(nmap) if nmap else None
+    except json.JSONDecodeError as e:
+        raise InvalidInput("Opcje nmap: nieprawidłowy JSON.") from e
+    return _started(raw_items, scan_options(user, nuclei, gvm, rate_limit, time_window_mins, deep, intel, nmap_opts))
 
 
 @router.post("/scans/import-results")
@@ -146,6 +166,28 @@ def export_csv(sid: int, user: dict = Depends(auth.require("read"))):
     *_, items = history.load(sid)
     return Response(report.findings_csv(items), media_type="text/csv",
                     headers={"Content-Disposition": f'attachment; filename="asi-findings-{sid}.csv"'})
+
+
+@router.get("/scans/{sid}/nmap")
+def nmap_runs(sid: int, user: dict = Depends(auth.require("read"))):
+    """Uruchomienia nmapa w tym skanie (dane hostów są w zasobach skanu)."""
+    _existing(sid)
+    return {"runs": repo.nmap_runs(sid)}
+
+
+@router.get("/scans/{sid}/nmap.xml")
+def nmap_xml(sid: int, user: dict = Depends(auth.require("read"))):
+    """Wynik w formacie nmap -oX, do otwarcia w Zenmapie, ndiff albo imporcie do innych narzędzi."""
+    _existing(sid)
+    merged = nmap_parser.merge(repo.nmap_xml(sid))
+    if merged is None:
+        raise NotFound("W tym skanie nmap nie był uruchamiany.")
+    return Response(merged, media_type="application/xml", headers={"Content-Disposition": f'attachment; filename="asi-nmap-{sid}.xml"'})
+
+
+def _existing(sid):
+    if repo.status(sid) is None:
+        raise NotFound("Nie ma takiego skanu")
 
 
 @router.get("/scans/{sid}/report", response_class=HTMLResponse)

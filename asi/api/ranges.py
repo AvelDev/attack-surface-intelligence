@@ -9,6 +9,7 @@ from ..errors import Conflict, InvalidInput, NotFound
 from ..repo import findings as findings_repo
 from ..repo import scans as repo
 from ..scan import runner
+from .scans import authorized_nmap
 
 router = APIRouter(tags=["ranges"])
 MAX_NOTE = 500
@@ -51,5 +52,8 @@ def run_range(rid: str, user: dict = Depends(auth.require("add_remove_modify")))
     targets = repo.targets_of(rows[0]["id"])
     if not targets:
         raise InvalidInput("Brak zapisanych celów dla tego zakresu.")
-    sid, _ = runner.start_scan(targets, json.loads(rows[0]["opts"] or "{}"))
+    opts = json.loads(rows[0]["opts"] or "{}")
+    if opts.get("nmap"):  # opcje mógł zapisać admin; uruchamiający musi mieć do nich prawo
+        authorized_nmap(opts["nmap"], user, opts)
+    sid, _ = runner.start_scan(targets, opts)
     return {"id": sid}

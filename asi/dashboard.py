@@ -84,6 +84,16 @@ def _ip_of(kind, value):
     return None
 
 
+def _port_label(text):
+    """TCP jako liczba, inne protokoły z przyrostkiem: "53/udp" (ports.port_value)."""
+    return int(text) if text.isdigit() else text
+
+
+def _port_sort(label):
+    number, _, proto = str(label).partition("/")
+    return int(number), proto
+
+
 def _describe(kind, value, data):
     if kind == "port":
         bits = [data.get("service") or "", data.get("version") or ""]
@@ -415,7 +425,7 @@ def _range(c, thash, runs, notes, triage, schedules, now, pick_scan, at=None):
                  "state": _dominant(states, change_map.get(hid)),
                  "changes": len(states), "severity": sev, "services": len(port_ids)}
         map_hosts.append(entry)
-        entry["_ports"] = sorted(((int(p), a) for p, a in h["ports"].items()), key=lambda x: x[0])
+        entry["_ports"] = sorted(((_port_label(p), a) for p, a in h["ports"].items()), key=lambda x: _port_sort(x[0]))
     detail_mode = len(map_hosts) <= DETAIL_HOSTS
     # stan portu w mapie: zmiana mogła zostać zgłoszona na bogatszym zasobie web tego portu
     hp_state = {}

@@ -15,7 +15,9 @@ class ScheduleReq(BaseModel):
     nuclei: bool = False
     gvm: bool = False
     deep: bool = False
+    intel: bool = False
     rate_limit: int | None = None
+    nmap: dict | None = None
 
 
 class SchedulePatch(BaseModel):
@@ -29,7 +31,7 @@ def list_schedules(user: dict = Depends(auth.require("read"))):
 
 @router.post("/schedules")
 def create_schedule(req: ScheduleReq, user: dict = Depends(auth.require("add_remove_modify"))):
-    opts = scan_options(req.nuclei, req.gvm, req.rate_limit, req.time_window_mins, req.deep)
+    opts = scan_options(user, req.nuclei, req.gvm, req.rate_limit, req.time_window_mins, req.deep, req.intel, req.nmap)
     return {"id": scheduler.create(req.target, req.interval_hours, req.time_window_mins, opts)}
 
 
